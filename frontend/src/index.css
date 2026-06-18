@@ -1,0 +1,53 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Inter', sans-serif;
+  
+  --color-pastel-pink: #F2C7C7;
+  --color-pastel-green: #D5F3D8;
+  --color-pastel-accent: #C75F71;
+  --color-pastel-highlight: #FFB7C5;
+  --color-pastel-darkBg: #121214;
+  --color-pastel-darkCard: #1E1E24;
+  --color-pastel-darkBorder: #2E2E38;
+}
+
+@layer base {
+  body {
+    @apply font-sans antialiased transition-colors duration-200;
+  }
+}
+
+/* Custom CSS Scrollbar and pastel gradient backgrounds */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-pastel-accent/20 rounded-full hover:bg-pastel-accent/40;
+}
+
+.gradient-pastel-hero {
+  background: linear-gradient(135deg, #F2C7C7 0%, #FFB7C5 50%, #D5F3D8 100%);
+}
+
+.gradient-card-border {
+  position: relative;
+  background: linear-gradient(white, white) padding-box,
+              linear-gradient(135deg, #F2C7C7, #D5F3D8) border-box;
+  border: 2px solid transparent;
+}
+
+.dark .gradient-card-border {
+  background: linear-gradient(#1E1E24, #1E1E24) padding-box,
+              linear-gradient(135deg, #C75F71, #2E2E38) border-box;
+}
+
+/* Micro-animations */
+.hover-scale {
+  @apply transition-transform duration-200 ease-out hover:scale-[1.02] active:scale-[0.98];
+}
