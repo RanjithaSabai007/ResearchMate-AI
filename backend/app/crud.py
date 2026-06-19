@@ -65,3 +65,29 @@ def create_audit_log(db: Session, action: str, user_id: UUID = None, session_id:
 
 def get_audit_logs(db: Session, user_id: UUID):
     return db.query(models.AuditLog).filter(models.AuditLog.user_id == user_id).order_by(models.AuditLog.created_at.desc()).all()
+
+def get_user_papers(db: Session, user_id: UUID):
+    return db.query(models.Paper).filter(models.Paper.user_id == user_id).order_by(models.Paper.created_at.desc()).all()
+
+def create_user_paper(db: Session, paper: schemas.PaperCreate, user_id: UUID):
+    db_paper = models.Paper(
+        user_id=user_id,
+        title=paper.title,
+        author=paper.author,
+        domain=paper.domain,
+        keywords=paper.keywords,
+        abstract=paper.abstract
+    )
+    db.add(db_paper)
+    db.commit()
+    db.refresh(db_paper)
+    return db_paper
+
+def delete_user_paper(db: Session, paper_id: UUID, user_id: UUID):
+    db_paper = db.query(models.Paper).filter(models.Paper.id == paper_id, models.Paper.user_id == user_id).first()
+    if db_paper:
+        db.delete(db_paper)
+        db.commit()
+        return True
+    return False
+

@@ -18,6 +18,7 @@ class User(Base):
     
     sessions = relationship("Session", back_populates="user", cascade="all, delete-orphan")
     audit_logs = relationship("AuditLog", back_populates="user", cascade="all, delete-orphan")
+    papers = relationship("Paper", back_populates="user", cascade="all, delete-orphan")
 
 class Session(Base):
     __tablename__ = "sessions"
@@ -42,8 +43,23 @@ class AuditLog(Base):
     session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True)
     action = Column(String, nullable=False)  # e.g., "USER_REGISTER", "USER_LOGIN", "USER_LOGOUT"
     ip_address = Column(String, nullable=True)
-    details = Column(EncryptedString, nullable=True)  # Store encrypted audit log details
+    details = Column(String, nullable=True)  # Store audit log details in plain text
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     
     user = relationship("User", back_populates="audit_logs")
     session = relationship("Session", back_populates="audit_logs")
+
+class Paper(Base):
+    __tablename__ = "papers"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    title = Column(String, nullable=False)
+    author = Column(String, nullable=False)
+    domain = Column(String, nullable=False)
+    keywords = Column(String, nullable=True)
+    abstract = Column(String, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    
+    user = relationship("User", back_populates="papers")
+

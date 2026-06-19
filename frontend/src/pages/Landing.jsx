@@ -1,6 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Shield, BookOpen, Database, Lock, ArrowRight } from 'lucide-react';
+import { Shield, Database, Lock, ArrowRight } from 'lucide-react';
+import logo from '../assets/Logo.PNG';
 
 export default function Landing() {
   const navigate = useNavigate();
@@ -10,8 +11,8 @@ export default function Landing() {
       {/* Navbar */}
       <header className="max-w-7xl mx-auto w-full px-6 h-20 flex items-center justify-between">
         <div className="flex items-center space-x-3">
-          <div className="p-2 rounded-xl bg-gradient-to-tr from-pastel-pink to-pastel-highlight text-pastel-accent">
-            <BookOpen className="w-6 h-6 text-pastel-accent" />
+          <div className="p-1">
+            <img src={logo} alt="ResearchMate AI Logo" className="w-8 h-8 object-contain" />
           </div>
           <span className="font-bold text-xl bg-gradient-to-r from-pastel-accent to-pink-500 bg-clip-text text-transparent">
             ResearchMate AI

@@ -23,10 +23,8 @@ export default function Dashboard() {
   const navigate = useNavigate();
 
   // Dashboard state
-  const [papers, setPapers] = useState([
-    { id: 1, title: "Attention Is All You Need", author: "Vaswani et al.", domain: "Deep Learning", keywords: "Transformers, NLP", abstract: "We propose a new simple network architecture, the Transformer..." },
-    { id: 2, title: "BERT: Pre-training of Deep Bidirectional Transformers", author: "Devlin et al.", domain: "Natural Language Processing", keywords: "BERT, NLP, Language Models", abstract: "We introduce a new language representation model called BERT..." }
-  ]);
+  const [papers, setPapers] = useState([]);
+  const [sessionsCount, setSessionsCount] = useState(1);
   const [auditLogs, setAuditLogs] = useState([]);
   const [activeSessions, setActiveSessions] = useState([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
@@ -42,6 +40,24 @@ export default function Dashboard() {
   });
   const [selectedFile, setSelectedFile] = useState(null);
 
+  const fetchPapers = async () => {
+    try {
+      const response = await api.get('/api/papers');
+      setPapers(response.data);
+    } catch (err) {
+      console.error("Failed to load papers:", err);
+    }
+  };
+
+  const fetchActiveSessions = async () => {
+    try {
+      const response = await api.get('/api/auth/sessions');
+      setSessionsCount(response.data.filter(s => s.is_active).length);
+    } catch (err) {
+      console.error("Failed to load sessions count:", err);
+    }
+  };
+
   useEffect(() => {
     const storedUser = localStorage.getItem('user');
     const token = localStorage.getItem('session_token');
@@ -50,6 +66,8 @@ export default function Dashboard() {
       return;
     }
     setUser(JSON.parse(storedUser));
+    fetchPapers();
+    fetchActiveSessions();
     
     // Check local storage for dark mode
     const systemTheme = localStorage.getItem('theme');
@@ -124,29 +142,36 @@ export default function Dashboard() {
     }
   };
 
-  const handleFormSubmit = (e) => {
+  const handleFormSubmit = async (e) => {
     e.preventDefault();
     setUploadSuccess(false);
     
-    // Simple state update to represent uploading paper
-    const newPaper = {
-      id: Date.now(),
-      title: paperForm.title,
-      author: paperForm.author,
-      domain: paperForm.domain,
-      keywords: paperForm.keywords,
-      abstract: paperForm.abstract
-    };
+    try {
+      const response = await api.post('/api/papers', {
+        title: paperForm.title,
+        author: paperForm.author,
+        domain: paperForm.domain,
+        keywords: paperForm.keywords,
+        abstract: paperForm.abstract
+      });
 
-    setPapers([newPaper, ...papers]);
-    setPaperForm({ title: '', author: '', domain: '', keywords: '', abstract: '' });
-    setSelectedFile(null);
-    setUploadSuccess(true);
-    setTimeout(() => setUploadSuccess(false), 4000);
+      setPapers([response.data, ...papers]);
+      setPaperForm({ title: '', author: '', domain: '', keywords: '', abstract: '' });
+      setSelectedFile(null);
+      setUploadSuccess(true);
+      setTimeout(() => setUploadSuccess(false), 4000);
+    } catch (err) {
+      console.error("Failed to add paper:", err);
+    }
   };
 
-  const handleDeletePaper = (id) => {
-    setPapers(papers.filter(p => p.id !== id));
+  const handleDeletePaper = async (id) => {
+    try {
+      await api.delete(`/api/papers/${id}`);
+      setPapers(papers.filter(p => p.id !== id));
+    } catch (err) {
+      console.error("Failed to delete paper:", err);
+    }
   };
 
   return (
@@ -174,7 +199,7 @@ export default function Dashboard() {
             <div className="max-w-7xl mx-auto space-y-6">
               
               {/* Top Banner Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 
                 {/* Papers Stat Card */}
                 <div className={`p-6 rounded-3xl border shadow-sm ${
@@ -198,25 +223,10 @@ export default function Dashboard() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm font-bold text-gray-400 uppercase tracking-wider">Active Sessions</p>
-                      <h3 className="text-3xl font-extrabold mt-2 text-emerald-500">1</h3>
+                      <h3 className="text-3xl font-extrabold mt-2 text-emerald-500">{sessionsCount}</h3>
                     </div>
                     <div className="p-3 rounded-2xl bg-pastel-green/30 text-emerald-600">
                       <Users className="w-6 h-6" />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Database Encryption Stat Card */}
-                <div className={`p-6 rounded-3xl border shadow-sm ${
-                  isDark ? 'bg-pastel-darkCard border-pastel-darkBorder' : 'bg-white border-gray-100'
-                }`}>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-bold text-gray-400 uppercase tracking-wider">Payload Status</p>
-                      <h3 className="text-3xl font-extrabold mt-2 text-indigo-500">AES-256</h3>
-                    </div>
-                    <div className="p-3 rounded-2xl bg-indigo-50 dark:bg-indigo-950/20 text-indigo-500">
-                      <Clock className="w-6 h-6" />
                     </div>
                   </div>
                 </div>

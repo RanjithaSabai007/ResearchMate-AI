@@ -8,9 +8,10 @@ import {
   Menu, 
   Moon, 
   Sun,
-  ChevronLeft,
-  BookOpen
+  ChevronLeft
 } from 'lucide-react';
+import api from '../utils/api';
+import logo from '../assets/Logo.PNG';
 
 export default function Sidebar({ isDark, toggleTheme, user, onSectionChange, activeSection }) {
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -18,9 +19,15 @@ export default function Sidebar({ isDark, toggleTheme, user, onSectionChange, ac
   const location = useLocation();
 
   const handleLogout = async () => {
-    localStorage.removeItem('session_token');
-    localStorage.removeItem('user');
-    navigate('/login');
+    try {
+      await api.post('/api/auth/logout');
+    } catch (err) {
+      console.error("Failed to revoke session on server logout:", err);
+    } finally {
+      localStorage.removeItem('session_token');
+      localStorage.removeItem('user');
+      navigate('/login');
+    }
   };
 
   const navItems = [
@@ -40,10 +47,10 @@ export default function Sidebar({ isDark, toggleTheme, user, onSectionChange, ac
     >
       {/* Top Header */}
       <div>
-        <div className={`p-4 flex items-center justify-between border-b ${isDark ? 'border-pastel-darkBorder' : 'border-gray-100'}`}>
-          <div className="flex items-center space-x-3 overflow-hidden">
-            <div className="p-2 rounded-xl bg-gradient-to-tr from-pastel-pink to-pastel-highlight text-pastel-accent">
-              <BookOpen className="w-6 h-6 flex-shrink-0" />
+        <div className={`p-4 flex ${isCollapsed ? 'flex-col space-y-3 items-center' : 'items-center justify-between'} border-b ${isDark ? 'border-pastel-darkBorder' : 'border-gray-100'}`}>
+          <div className="flex items-center space-x-3 overflow-hidden flex-shrink-0">
+            <div className="p-1 flex-shrink-0">
+              <img src={logo} alt="ResearchMate AI Logo" className="w-8 h-8 object-contain flex-shrink-0" />
             </div>
             {!isCollapsed && (
               <span className="font-bold text-lg bg-gradient-to-r from-pastel-accent to-pink-500 bg-clip-text text-transparent truncate">
@@ -70,7 +77,7 @@ export default function Sidebar({ isDark, toggleTheme, user, onSectionChange, ac
               <button
                 key={item.id}
                 onClick={() => onSectionChange(item.id)}
-                className={`w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 text-left hover-scale ${
+                className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'space-x-3'} p-3 rounded-xl transition-all duration-200 text-left hover-scale ${
                   isActive
                     ? 'bg-pastel-pink/20 text-pastel-accent font-semibold'
                     : isDark
@@ -91,7 +98,7 @@ export default function Sidebar({ isDark, toggleTheme, user, onSectionChange, ac
         {/* Theme Toggle */}
         <button
           onClick={toggleTheme}
-          className={`w-full flex items-center space-x-3 p-3 rounded-xl transition-colors hover-scale ${
+          className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'space-x-3'} p-3 rounded-xl transition-colors hover-scale ${
             isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-50'
           }`}
         >
@@ -109,7 +116,7 @@ export default function Sidebar({ isDark, toggleTheme, user, onSectionChange, ac
         </button>
 
         {/* User profile details */}
-        <div className={`flex items-center space-x-3 p-2 rounded-xl ${isDark ? 'bg-gray-800/30' : 'bg-gray-50'}`}>
+        <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'space-x-3'} p-2 rounded-xl ${isDark ? 'bg-gray-800/30' : 'bg-gray-50'}`}>
           <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-pastel-pink to-pastel-green flex items-center justify-center font-bold text-pastel-accent flex-shrink-0">
             {user?.username?.[0]?.toUpperCase() || 'U'}
           </div>
@@ -124,7 +131,7 @@ export default function Sidebar({ isDark, toggleTheme, user, onSectionChange, ac
         {/* Logout Button */}
         <button
           onClick={handleLogout}
-          className="w-full flex items-center space-x-3 p-3 rounded-xl text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors hover-scale text-left"
+          className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'space-x-3'} p-3 rounded-xl text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors hover-scale text-left`}
         >
           <LogOut className="w-5 h-5 flex-shrink-0" />
           {!isCollapsed && <span className="font-semibold">Log Out</span>}

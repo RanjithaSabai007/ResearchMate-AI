@@ -1,6 +1,6 @@
 from pydantic import BaseModel, EmailStr
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Generic, TypeVar
 from uuid import UUID
 
 class UserBase(BaseModel):
@@ -59,3 +59,32 @@ class CustomErrorResponse(BaseModel):
     message: str
     details: Optional[List[ErrorDetail]] = None
     timestamp: datetime
+
+class PaperBase(BaseModel):
+    title: str
+    author: str
+    domain: str
+    keywords: Optional[str] = None
+    abstract: Optional[str] = None
+
+class PaperCreate(PaperBase):
+    pass
+
+class PaperResponse(PaperBase):
+    id: UUID
+    user_id: UUID
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+T = TypeVar("T")
+
+class ApiResponse(BaseModel, Generic[T]):
+    success: bool
+    data: Optional[T] = None
+    error_code: Optional[str] = None
+    message: Optional[str] = None
+    details: Optional[List[str]] = None
+
+

@@ -1,19 +1,21 @@
 from fastapi import FastAPI, Depends, HTTPException, Request, Response, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 import json
+from uuid import UUID
 
 from app import models, schemas, crud, auth
 from app.database import engine, get_db
-from app.encryption import encrypt_payload, decrypt_payload
 
 # Initialize Database tables
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="ResearchMate AI API",
-    description="Secure research management backend with encrypted network payloads",
+    description="Secure research management backend",
     version="1.0.0"
 )
 
@@ -24,103 +26,49 @@ app.add_middleware(
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["X-Encrypted"]
+    allow_headers=["*"]
 )
 
-# Custom Middleware for Network Payload Encryption/Decryption
-# Ensures that network traffic is encrypted and hidden in Chrome DevTools (Inspect)
-@app.middleware("http")
-async def payload_encryption_middleware(request: Request, call_next):
-    # Exclude API documentation paths from encryption so Swagger UI works normally
-    if request.url.path in ["/docs", "/redoc", "/openapi.json"]:
-        return await call_next(request)
+# Global Exception Handlers for Unified Response Formatting
+@app.exception_handler(HTTPException)
+async def custom_http_exception_handler(request: Request, exc: HTTPException):
+    detail = exc.detail
+    if isinstance(detail, dict):
+        error_code = detail.get("error_code", "ERROR")
+        message = detail.get("message", "An error occurred")
+        details = detail.get("details", None)
+    else:
+        error_code = "ERROR"
+        message = str(exc.detail)
+        details = None
         
-    is_encrypted = request.headers.get("X-Encrypted") == "true"
-    
-    # 1. Decrypt Request Payload
-    if is_encrypted and request.method in ["POST", "PUT", "PATCH"]:
-        try:
-            body = await request.body()
-            if body:
-                body_json = json.loads(body.decode('utf-8'))
-                encrypted_payload = body_json.get("payload")
-                if encrypted_payload:
-                    decrypted_str = decrypt_payload(encrypted_payload)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "success": False,
+            "data": None,
+            "error_code": error_code,
+            "message": message,
+            "details": details
+        }
+    )
 
-                    body_bytes = decrypted_str.encode("utf-8")
-
-                    async def receive():
-                        return {
-                            "type": "http.request",
-                            "body": body_bytes,
-                            "more_body": False
-                        }
-
-                    request._receive = receive
-                    request._body = body_bytes
-                else:
-                    return Response(
-                        content=json.dumps({
-                            "status_code": 400,
-                            "error_code": "DECRYPTION_ERROR",
-                            "message": "Missing encrypted payload field",
-                            "timestamp": datetime.now(timezone.utc).isoformat()
-                        }),
-                        status_code=400,
-                        media_type="application/json"
-                    )
-        except Exception as e:
-            return Response(
-                content=json.dumps({
-                    "status_code": 400,
-                    "error_code": "DECRYPTION_ERROR",
-                    "message": f"Failed to decrypt payload: {str(e)}",
-                    "timestamp": datetime.now(timezone.utc).isoformat()
-                }),
-                status_code=400,
-                media_type="application/json"
-            )
-
-    # Execute endpoint handler
-    print(">>> ABOUT TO CALL ENDPOINT <<<")
-    response = await call_next(request)
-    
-    # 2. Encrypt Response Payload
-    # Check if client requested encryption or was using encryption, and response is JSON
-    if is_encrypted and response.headers.get("content-type", "").startswith("application/json"):
-        # Read the plain response body
-        body_chunks = [chunk async for chunk in response.body_iterator]
-        response_body = b"".join(body_chunks)
-        
-        try:
-            plain_str = response_body.decode('utf-8')
-            encrypted_str = encrypt_payload(plain_str)
-            encrypted_body = json.dumps({"payload": encrypted_str}).encode('utf-8')
-            
-            # Re-construct response headers
-            headers = dict(response.headers)
-            headers["content-length"] = str(len(encrypted_body))
-            headers["X-Encrypted"] = "true"  # Let frontend know it needs to decrypt
-            
-            return Response(
-                content=encrypted_body,
-                status_code=response.status_code,
-                headers=headers,
-                media_type="application/json"
-            )
-        except Exception as e:
-            # Fallback to plain if encryption fails
-            headers = dict(response.headers)
-            headers["X-Encryption-Error"] = str(e)
-            return Response(
-                content=response_body,
-                status_code=response.status_code,
-                headers=headers,
-                media_type="application/json"
-            )
-            
-    return response
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    errors = []
+    for err in exc.errors():
+        loc = " -> ".join(str(x) for x in err.get("loc", []))
+        errors.append(f"{loc}: {err.get('msg')}")
+    return JSONResponse(
+        status_code=422,
+        content={
+            "success": False,
+            "data": None,
+            "error_code": "VALIDATION_ERROR",
+            "message": "Request validation failed.",
+            "details": errors
+        }
+    )
 
 # Dependency to fetch and validate active session from Authorization header
 def get_current_session(request: Request, db: Session = Depends(get_db)) -> models.Session:
@@ -150,7 +98,7 @@ def get_current_session(request: Request, db: Session = Depends(get_db)) -> mode
 
 # --- API Endpoints ---
 
-@app.post("/api/auth/register", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED)
+@app.post("/api/auth/register", response_model=schemas.ApiResponse[schemas.UserResponse], status_code=status.HTTP_201_CREATED, tags=["Authentication"])
 def register(user_data: schemas.UserCreate, db: Session = Depends(get_db)):
     # Check if username or email already exists
     existing_username = crud.get_user_by_username(db, user_data.username)
@@ -175,9 +123,15 @@ def register(user_data: schemas.UserCreate, db: Session = Depends(get_db)):
             }
         )
         
-    return crud.create_user(db, user_data)
+    db_user = crud.create_user(db, user_data)
+    return {
+        "success": True,
+        "data": db_user,
+        "error_code": None,
+        "message": "User registered successfully."
+    }
 
-@app.post("/api/auth/login")
+@app.post("/api/auth/login", response_model=schemas.ApiResponse[dict], tags=["Authentication"])
 def login(login_data: schemas.UserLogin, request: Request, db: Session = Depends(get_db)):
     # Try looking up by username or email
     db_user = crud.get_user_by_username(db, login_data.username_or_email)
@@ -217,24 +171,39 @@ def login(login_data: schemas.UserLogin, request: Request, db: Session = Depends
     )
     
     return {
-        "session_token": db_session.session_token,
-        "user": {
-            "id": str(db_user.id),
-            "username": db_user.username,
-            "email": db_user.email
-        }
+        "success": True,
+        "data": {
+            "session_token": db_session.session_token,
+            "user": {
+                "id": str(db_user.id),
+                "username": db_user.username,
+                "email": db_user.email
+            }
+        },
+        "error_code": None,
+        "message": "Login successful."
     }
 
-@app.post("/api/auth/logout")
+@app.post("/api/auth/logout", response_model=schemas.ApiResponse[dict], tags=["Authentication"])
 def logout(current_session: models.Session = Depends(get_current_session), db: Session = Depends(get_db)):
     crud.deactivate_session(db, current_session.session_token)
-    return {"message": "Successfully logged out and session revoked."}
+    return {
+        "success": True,
+        "data": {"message": "Successfully logged out and session revoked."},
+        "error_code": None,
+        "message": "Logout successful."
+    }
 
-@app.get("/api/auth/me", response_model=schemas.UserResponse)
+@app.get("/api/auth/me", response_model=schemas.ApiResponse[schemas.UserResponse], tags=["Authentication"])
 def get_me(current_session: models.Session = Depends(get_current_session)):
-    return current_session.user
+    return {
+        "success": True,
+        "data": current_session.user,
+        "error_code": None,
+        "message": "Successfully retrieved user profile."
+    }
 
-@app.put("/api/auth/update-profile", response_model=schemas.UserResponse)
+@app.put("/api/auth/update-profile", response_model=schemas.ApiResponse[schemas.UserResponse], tags=["Authentication"])
 def update_profile(
     user_update: schemas.UserBase, 
     current_session: models.Session = Depends(get_current_session), 
@@ -281,30 +250,51 @@ def update_profile(
         details=f"Updated profile details to: {user_update.username} / {user_update.email}"
     )
     
-    return db_user
+    return {
+        "success": True,
+        "data": db_user,
+        "error_code": None,
+        "message": "Profile updated successfully."
+    }
 
-@app.delete("/api/auth/delete-account")
+@app.delete("/api/auth/delete-account", response_model=schemas.ApiResponse[dict], tags=["Authentication"])
 def delete_account(current_session: models.Session = Depends(get_current_session), db: Session = Depends(get_db)):
     db_user = current_session.user
     db.delete(db_user)
     db.commit()
-    return {"message": "Account successfully deleted."}
+    return {
+        "success": True,
+        "data": {"message": "Account successfully deleted."},
+        "error_code": None,
+        "message": "Account deleted successfully."
+    }
 
-@app.get("/api/auth/audit-logs", response_model=list[schemas.AuditLogResponse])
+@app.get("/api/auth/audit-logs", response_model=schemas.ApiResponse[list[schemas.AuditLogResponse]], tags=["Authentication"])
 def get_my_audit_logs(
     current_session: models.Session = Depends(get_current_session), 
     db: Session = Depends(get_db)
 ):
-    return crud.get_audit_logs(db, current_session.user_id)
+    return {
+        "success": True,
+        "data": crud.get_audit_logs(db, current_session.user_id),
+        "error_code": None,
+        "message": "Audit logs retrieved successfully."
+    }
 
-@app.get("/api/auth/sessions", response_model=list[schemas.SessionResponse])
+@app.get("/api/auth/sessions", response_model=schemas.ApiResponse[list[schemas.SessionResponse]], tags=["Authentication"])
 def get_my_sessions(
     current_session: models.Session = Depends(get_current_session),
     db: Session = Depends(get_db)
 ):
-    return db.query(models.Session).filter(models.Session.user_id == current_session.user_id, models.Session.is_active == True).all()
+    active_sessions = db.query(models.Session).filter(models.Session.user_id == current_session.user_id, models.Session.is_active == True).all()
+    return {
+        "success": True,
+        "data": active_sessions,
+        "error_code": None,
+        "message": "Active sessions retrieved successfully."
+    }
 
-@app.delete("/api/auth/sessions/{session_id}")
+@app.delete("/api/auth/sessions/{session_id}", response_model=schemas.ApiResponse[dict], tags=["Authentication"])
 def revoke_session(
     session_id: str,
     current_session: models.Session = Depends(get_current_session),
@@ -338,5 +328,75 @@ def revoke_session(
         details=f"Revoked active session ID: {session_id}"
     )
     
-    return {"message": "Session successfully revoked."}
+    return {
+        "success": True,
+        "data": {"message": "Session successfully revoked."},
+        "error_code": None,
+        "message": "Session revoked successfully."
+    }
 
+@app.get("/api/papers", response_model=schemas.ApiResponse[list[schemas.PaperResponse]], tags=["Research Papers"])
+def get_papers(
+    current_session: models.Session = Depends(get_current_session),
+    db: Session = Depends(get_db)
+):
+    return {
+        "success": True,
+        "data": crud.get_user_papers(db, current_session.user_id),
+        "error_code": None,
+        "message": "Papers retrieved successfully."
+    }
+
+@app.post("/api/papers", response_model=schemas.ApiResponse[schemas.PaperResponse], status_code=status.HTTP_201_CREATED, tags=["Research Papers"])
+def create_paper(
+    paper_data: schemas.PaperCreate,
+    current_session: models.Session = Depends(get_current_session),
+    db: Session = Depends(get_db)
+):
+    # Log audit entry for adding a paper
+    crud.create_audit_log(
+        db,
+        action="ADD_PAPER",
+        user_id=current_session.user_id,
+        session_id=current_session.id,
+        details=f"Added paper: {paper_data.title}"
+    )
+    new_paper = crud.create_user_paper(db, paper_data, current_session.user_id)
+    return {
+        "success": True,
+        "data": new_paper,
+        "error_code": None,
+        "message": "Paper created successfully."
+    }
+
+@app.delete("/api/papers/{paper_id}", response_model=schemas.ApiResponse[dict], tags=["Research Papers"])
+def delete_paper(
+    paper_id: UUID,
+    current_session: models.Session = Depends(get_current_session),
+    db: Session = Depends(get_db)
+):
+    success = crud.delete_user_paper(db, paper_id, current_session.user_id)
+    if not success:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "status_code": 404,
+                "error_code": "PAPER_NOT_FOUND",
+                "message": "The paper could not be found or you do not have permission to delete it."
+            }
+        )
+        
+    # Log audit entry
+    crud.create_audit_log(
+        db,
+        action="DELETE_PAPER",
+        user_id=current_session.user_id,
+        session_id=current_session.id,
+        details=f"Deleted paper ID: {str(paper_id)}"
+    )
+    return {
+        "success": True,
+        "data": {"message": "Paper successfully deleted."},
+        "error_code": None,
+        "message": "Paper deleted successfully."
+    }
