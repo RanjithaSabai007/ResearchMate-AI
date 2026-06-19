@@ -7,16 +7,54 @@ import logo from '../assets/Logo.PNG';
 export default function Login() {
   const [formData, setFormData] = useState({ username_or_email: '', password: '' });
   const [rememberMe, setRememberMe] = useState(false);
+  const [acceptTerms, setAcceptTerms] = useState(false);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+
+  // Social Auth Simulation States
+  const [socialModal, setSocialModal] = useState({ open: false, provider: null });
+  const [customSocialEmail, setCustomSocialEmail] = useState('');
+  const [customSocialName, setCustomSocialName] = useState('');
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
+  const handleSocialLogin = (provider) => {
+    setCustomSocialEmail('');
+    setCustomSocialName('');
+    setSocialModal({ open: true, provider });
+  };
+
+  const handleSocialSelect = async (email, username, provider) => {
+    setError(null);
+    setLoading(true);
+    setSocialModal({ open: false, provider: null });
+    try {
+      const response = await api.post('/api/auth/social-login', { email, username, provider });
+      const { session_token, user } = response.data;
+      localStorage.setItem('session_token', session_token);
+      localStorage.setItem('user', JSON.stringify(user));
+      navigate('/dashboard');
+    } catch (err) {
+      console.error('Social login component caught error:', err);
+      if (err.response && err.response.data) {
+        setError(err.response.data.message || 'Social authentication failed.');
+      } else {
+        setError('Network error during social authentication.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!acceptTerms) {
+      setError("You must accept the terms and conditions to log in.");
+      return;
+    }
     setError(null);
     setLoading(true);
 
@@ -208,7 +246,7 @@ export default function Login() {
               </div>
             </div>
 
-            {/* Remember Me Checkbox */}
+            {/* Remember Me Checkbox & Forgot Password Link */}
             <div className="flex items-center justify-between">
               <label className="flex items-center space-x-2.5 text-xs text-gray-500 font-semibold cursor-pointer">
                 <input
@@ -219,6 +257,30 @@ export default function Login() {
                   className="w-4 h-4 rounded border-gray-300 text-pastel-accent focus:ring-pastel-pink/50 cursor-pointer"
                 />
                 <span>Remember me</span>
+              </label>
+              
+              <Link to="/forgot-password" className="text-xs font-bold text-pastel-accent hover:underline">
+                Forgot Password?
+              </Link>
+            </div>
+
+            {/* Terms and Conditions Checkbox */}
+            <div className="flex items-center">
+              <label className="flex items-center space-x-2.5 text-xs text-gray-500 font-semibold cursor-pointer">
+                <input
+                  required
+                  type="checkbox"
+                  name="accept_terms"
+                  checked={acceptTerms}
+                  onChange={(e) => setAcceptTerms(e.target.checked)}
+                  className="w-4 h-4 rounded border-gray-300 text-pastel-accent focus:ring-pastel-pink/50 cursor-pointer"
+                />
+                <span>
+                  I accept the{' '}
+                  <Link to="/terms" className="text-pastel-accent font-extrabold hover:underline">
+                    terms and conditions
+                  </Link>
+                </span>
               </label>
             </div>
 
@@ -238,6 +300,66 @@ export default function Login() {
             </button>
           </form>
 
+          {/* Social Divider */}
+          <div className="relative my-6 flex items-center">
+            <div className="flex-grow border-t border-gray-100"></div>
+            <span className="flex-shrink mx-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Or continue with</span>
+            <div className="flex-grow border-t border-gray-100"></div>
+          </div>
+
+          {/* Social Sign-in Buttons */}
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => handleSocialLogin('google')}
+              className="flex items-center justify-center space-x-2 py-3 bg-white border border-gray-100 hover:border-gray-200 rounded-2xl text-xs font-bold text-gray-600 transition-all hover:bg-gray-55/40 hover-scale"
+            >
+              <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24">
+                <path fill="#EA4335" d="M12 5.04c1.66 0 3.2.57 4.38 1.69l3.27-3.27C17.67 1.54 15.02 1 12 1 7.24 1 3.21 3.73 1.25 7.72l3.87 3C6.04 7.6 8.79 5.04 12 5.04z" />
+                <path fill="#4285F4" d="M23.45 12.27c0-.82-.07-1.6-.2-2.36H12v4.51h6.43c-.28 1.47-1.11 2.71-2.36 3.55l3.67 2.84c2.14-1.97 3.36-4.88 3.36-8.54z" />
+                <path fill="#FBBC05" d="M5.12 10.72A7.17 7.17 0 0 1 5 12c0 .44.05.88.12 1.3l-3.87 3A11.96 11.96 0 0 1 1 12c0-1.82.4-3.55 1.13-5.12l3.99 3.84z" />
+                <path fill="#34A853" d="M12 23c3.24 0 5.97-1.07 7.96-2.92l-3.67-2.84c-1.02.68-2.33 1.09-3.96 1.09-3.21 0-5.96-2.56-6.93-5.68l-3.99 3.09C3.21 20.27 7.24 23 12 23z" />
+              </svg>
+              <span>Google</span>
+            </button>
+            
+            <button
+              type="button"
+              onClick={() => handleSocialLogin('microsoft')}
+              className="flex items-center justify-center space-x-2 py-3 bg-white border border-gray-100 hover:border-gray-200 rounded-2xl text-xs font-bold text-gray-600 transition-all hover:bg-gray-55/40 hover-scale"
+            >
+              <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 23 23">
+                <path fill="#f35325" d="M0 0h11v11H0z" />
+                <path fill="#80bb0a" d="M12 0h11v11H12z" />
+                <path fill="#00a1f1" d="M0 12h11v11H0z" />
+                <path fill="#ffb900" d="M12 12h11v11H12z" />
+              </svg>
+              <span>Microsoft</span>
+            </button>
+            
+            <button
+              type="button"
+              onClick={() => handleSocialLogin('linkedin')}
+              className="flex items-center justify-center space-x-2 py-3 bg-white border border-gray-100 hover:border-gray-200 rounded-2xl text-xs font-bold text-gray-600 transition-all hover:bg-gray-55/40 hover-scale"
+            >
+              <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="#0A66C2">
+                <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0z"/>
+              </svg>
+              <span>LinkedIn</span>
+            </button>
+            
+            <button
+              type="button"
+              onClick={() => handleSocialLogin('github')}
+              className="flex items-center justify-center space-x-2 py-3 bg-white border border-gray-100 hover:border-gray-200 rounded-2xl text-xs font-bold text-gray-600 transition-all hover:bg-gray-55/40 hover-scale"
+            >
+              <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.603-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.464-1.11-1.464-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.579.688.481C19.137 20.162 22 16.418 22 12c0-5.523-4.477-10-10-10z"/>
+              </svg>
+              <span>GitHub</span>
+            </button>
+          </div>
+
           <p className="text-center text-sm text-gray-400 mt-8 font-semibold">
             Don't have an account?{' '}
             <Link to="/signup" className="text-pastel-accent font-extrabold hover:underline">
@@ -247,6 +369,179 @@ export default function Login() {
 
         </div>
       </div>
+
+      {/* Simulated Social Auth Modal */}
+      {socialModal.open && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 animate-fade-in-up text-gray-800">
+            
+            {/* Google */}
+            {socialModal.provider === 'google' && (
+              <div className="space-y-4">
+                <div className="flex flex-col items-center text-center">
+                  <svg className="w-10 h-10 mb-2" viewBox="0 0 24 24">
+                    <path fill="#EA4335" d="M12 5.04c1.66 0 3.2.57 4.38 1.69l3.27-3.27C17.67 1.54 15.02 1 12 1 7.24 1 3.21 3.73 1.25 7.72l3.87 3C6.04 7.6 8.79 5.04 12 5.04z" />
+                    <path fill="#4285F4" d="M23.45 12.27c0-.82-.07-1.6-.2-2.36H12v4.51h6.43c-.28 1.47-1.11 2.71-2.36 3.55l3.67 2.84c2.14-1.97 3.36-4.88 3.36-8.54z" />
+                    <path fill="#FBBC05" d="M5.12 10.72A7.17 7.17 0 0 1 5 12c0 .44.05.88.12 1.3l-3.87 3A11.96 11.96 0 0 1 1 12c0-1.82.4-3.55 1.13-5.12l3.99 3.84z" />
+                    <path fill="#34A853" d="M12 23c3.24 0 5.97-1.07 7.96-2.92l-3.67-2.84c-1.02.68-2.33 1.09-3.96 1.09-3.21 0-5.96-2.56-6.93-5.68l-3.99 3.09C3.21 20.27 7.24 23 12 23z" />
+                  </svg>
+                  <h3 className="font-extrabold text-lg">Sign in with Google</h3>
+                  <p className="text-xs text-gray-400 font-semibold mt-1">to continue to ResearchMate AI</p>
+                </div>
+                
+                <div className="space-y-2 mt-4">
+                  <button
+                    onClick={() => handleSocialSelect('dr.emily.carter@gmail.com', 'Emily Carter', 'google')}
+                    className="w-full flex items-center space-x-3 p-3 rounded-2xl border border-gray-100 hover:border-pastel-pink/40 hover:bg-pastel-pink/5 transition-all text-left"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-red-100 text-red-600 font-bold flex items-center justify-center text-xs">EC</div>
+                    <div>
+                      <p className="text-xs font-bold">Emily Carter</p>
+                      <p className="text-[10px] text-gray-400 font-medium">dr.emily.carter@gmail.com</p>
+                    </div>
+                  </button>
+                  
+                  <button
+                    onClick={() => handleSocialSelect('johndoe@gmail.com', 'John Doe', 'google')}
+                    className="w-full flex items-center space-x-3 p-3 rounded-2xl border border-gray-100 hover:border-pastel-pink/40 hover:bg-pastel-pink/5 transition-all text-left"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 font-bold flex items-center justify-center text-xs">JD</div>
+                    <div>
+                      <p className="text-xs font-bold">John Doe</p>
+                      <p className="text-[10px] text-gray-400 font-medium">johndoe@gmail.com</p>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Microsoft */}
+            {socialModal.provider === 'microsoft' && (
+              <div className="space-y-4">
+                <div className="flex flex-col items-center text-center">
+                  <svg className="w-10 h-10 mb-2" viewBox="0 0 23 23">
+                    <path fill="#f35325" d="M0 0h11v11H0z" />
+                    <path fill="#80bb0a" d="M12 0h11v11H12z" />
+                    <path fill="#00a1f1" d="M0 12h11v11H0z" />
+                    <path fill="#ffb900" d="M12 12h11v11H12z" />
+                  </svg>
+                  <h3 className="font-extrabold text-lg">Sign in with Microsoft</h3>
+                  <p className="text-xs text-gray-400 font-semibold mt-1">to continue to ResearchMate AI</p>
+                </div>
+                
+                <div className="space-y-2 mt-4">
+                  <button
+                    onClick={() => handleSocialSelect('sara.biologist@outlook.com', 'Sara Connor', 'microsoft')}
+                    className="w-full flex items-center space-x-3 p-3 rounded-2xl border border-gray-100 hover:border-pastel-pink/40 hover:bg-pastel-pink/5 transition-all text-left"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-orange-100 text-orange-600 font-bold flex items-center justify-center text-xs">SC</div>
+                    <div>
+                      <p className="text-xs font-bold">Sara Connor</p>
+                      <p className="text-[10px] text-gray-400 font-medium">sara.biologist@outlook.com</p>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* LinkedIn */}
+            {socialModal.provider === 'linkedin' && (
+              <div className="space-y-4">
+                <div className="flex flex-col items-center text-center">
+                  <svg className="w-10 h-10 mb-2" viewBox="0 0 24 24" fill="#0A66C2">
+                    <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0z"/>
+                  </svg>
+                  <h3 className="font-extrabold text-lg">Sign in with LinkedIn</h3>
+                  <p className="text-xs text-gray-400 font-semibold mt-1">to continue to ResearchMate AI</p>
+                </div>
+                
+                <div className="space-y-2 mt-4">
+                  <button
+                    onClick={() => handleSocialSelect('research.partner@linkedin.com', 'Academic Partner', 'linkedin')}
+                    className="w-full flex items-center space-x-3 p-3 rounded-2xl border border-gray-100 hover:border-pastel-pink/40 hover:bg-pastel-pink/5 transition-all text-left"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 font-bold flex items-center justify-center text-xs">AP</div>
+                    <div>
+                      <p className="text-xs font-bold">Academic Partner</p>
+                      <p className="text-[10px] text-gray-400 font-medium">research.partner@linkedin.com</p>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* GitHub */}
+            {socialModal.provider === 'github' && (
+              <div className="space-y-4">
+                <div className="flex flex-col items-center text-center">
+                  <svg className="w-10 h-10 mb-2" viewBox="0 0 24 24" fill="currentColor">
+                    <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.603-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.464-1.11-1.464-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.579.688.481C19.137 20.162 22 16.418 22 12c0-5.523-4.477-10-10-10z"/>
+                  </svg>
+                  <h3 className="font-extrabold text-lg">Sign in with GitHub</h3>
+                  <p className="text-xs text-gray-400 font-semibold mt-1">to continue to ResearchMate AI</p>
+                </div>
+                
+                <div className="space-y-2 mt-4">
+                  <button
+                    onClick={() => handleSocialSelect('coder.thesis@github.com', 'Code Thesis', 'github')}
+                    className="w-full flex items-center space-x-3 p-3 rounded-2xl border border-gray-100 hover:border-pastel-pink/40 hover:bg-pastel-pink/5 transition-all text-left"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-gray-100 text-gray-800 font-bold flex items-center justify-center text-xs">CT</div>
+                    <div>
+                      <p className="text-xs font-bold">Code Thesis</p>
+                      <p className="text-[10px] text-gray-400 font-medium">coder.thesis@github.com</p>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Custom inputs */}
+            <div className="relative my-4 flex items-center">
+              <div className="flex-grow border-t border-gray-100"></div>
+              <span className="flex-shrink mx-3 text-[10px] font-bold text-gray-400 uppercase">Or custom profile</span>
+              <div className="flex-grow border-t border-gray-100"></div>
+            </div>
+
+            <div className="space-y-3">
+              <input
+                type="text"
+                placeholder="Display Name"
+                value={customSocialName}
+                onChange={(e) => setCustomSocialName(e.target.value)}
+                className="w-full px-3 py-2 bg-gray-50 border border-gray-100 rounded-xl text-xs text-gray-700 placeholder-gray-400 focus:outline-none focus:border-pastel-pink/50 focus:bg-white font-semibold"
+              />
+              <input
+                type="email"
+                placeholder="Email Address"
+                value={customSocialEmail}
+                onChange={(e) => setCustomSocialEmail(e.target.value)}
+                className="w-full px-3 py-2 bg-gray-50 border border-gray-100 rounded-xl text-xs text-gray-700 placeholder-gray-400 focus:outline-none focus:border-pastel-pink/50 focus:bg-white font-semibold"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (customSocialEmail && customSocialName) {
+                    handleSocialSelect(customSocialEmail, customSocialName, socialModal.provider);
+                  }
+                }}
+                className="w-full py-2.5 bg-pastel-accent hover:bg-pastel-accent/90 text-white font-bold text-xs rounded-xl transition-all hover-scale"
+              >
+                Authorize Application
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setSocialModal({ open: false, provider: null })}
+              className="w-full text-center text-xs text-gray-400 font-bold hover:text-pastel-accent mt-4"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

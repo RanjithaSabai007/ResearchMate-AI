@@ -4,6 +4,9 @@ import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import Dashboard from './pages/Dashboard';
+import Terms from './pages/Terms';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 
 // Route protector for authenticated page (Dashboard)
 function ProtectedRoute({ children }) {
@@ -28,6 +31,26 @@ function App() {
     <Router>
       <Routes>
         <Route path="/" element={<Landing />} />
+        
+        <Route path="/terms" element={<Terms />} />
+        
+        <Route 
+          path="/forgot-password" 
+          element={
+            <PublicRoute>
+              <ForgotPassword />
+            </PublicRoute>
+          } 
+        />
+        
+        <Route 
+          path="/reset-password" 
+          element={
+            <PublicRoute>
+              <ResetPassword />
+            </PublicRoute>
+          } 
+        />
         
         <Route 
           path="/login" 

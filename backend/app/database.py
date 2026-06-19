@@ -51,6 +51,29 @@ engine = create_engine(
     pool_pre_ping=True
 )
 
+from sqlalchemy import text
+def run_migrations():
+    try:
+        with engine.connect() as conn:
+            res = conn.execute(text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name='users' AND column_name='reset_otp';"
+            ))
+            row = res.fetchone()
+            if not row:
+                print("Running database migration: adding reset_otp and reset_otp_expires_at columns to users table...")
+                conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_otp VARCHAR;"))
+                conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_otp_expires_at TIMESTAMP;"))
+                conn.commit()
+                print("Database migration completed successfully.")
+            else:
+                print("Database columns reset_otp and reset_otp_expires_at already exist.")
+    except Exception as e:
+        print(f"Database auto-migration warning: {e}")
+
+# Run migrations
+run_migrations()
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -60,3 +83,4 @@ def get_db():
         yield db
     finally:
         db.close()
+

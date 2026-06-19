@@ -16,6 +16,10 @@ class User(Base):
     password_hash = Column(String, nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     
+    # Password reset columns
+    reset_otp = Column(String, nullable=True)
+    reset_otp_expires_at = Column(DateTime, nullable=True)
+    
     sessions = relationship("Session", back_populates="user", cascade="all, delete-orphan")
     audit_logs = relationship("AuditLog", back_populates="user", cascade="all, delete-orphan")
     papers = relationship("Paper", back_populates="user", cascade="all, delete-orphan")

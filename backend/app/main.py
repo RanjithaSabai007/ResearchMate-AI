@@ -461,3 +461,151 @@ def delete_paper(
         "error_code": None,
         "message": "Paper deleted successfully."
     }
+
+# --- Social Login & Password Reset Endpoints ---
+
+@app.post("/api/auth/social-login", response_model=schemas.ApiResponse[dict], tags=["Authentication"])
+def social_login(login_data: schemas.SocialLoginRequest, request: Request, db: Session = Depends(get_db)):
+    import secrets
+    # Look up by email
+    db_user = crud.get_user_by_email(db, login_data.email)
+    
+    if not db_user:
+        # If user doesn't exist, create it!
+        # Set a random strong password for database validation
+        rand_pwd = secrets.token_hex(16)
+        user_create = schemas.UserCreate(
+            username=login_data.username,
+            email=login_data.email,
+            password=rand_pwd
+        )
+        db_user = crud.create_user(db, user_create)
+        
+    # Get user agent and IP
+    user_agent = request.headers.get("user-agent", "Unknown")
+    ip_address = request.client.host if request.client else "Unknown"
+    
+    # Create DB session
+    db_session = auth.create_user_session(
+        db,
+        user_id=db_user.id,
+        ip_address=ip_address,
+        user_agent=user_agent
+    )
+    
+    # Log audit entry
+    crud.create_audit_log(
+        db,
+        action="SOCIAL_LOGIN",
+        user_id=db_user.id,
+        session_id=db_session.id,
+        ip_address=ip_address,
+        details=f"Successful social login via {login_data.provider.capitalize()} as {login_data.email}"
+    )
+    
+    return {
+        "success": True,
+        "data": {
+            "session_token": db_session.session_token,
+            "user": {
+                "id": str(db_user.id),
+                "username": db_user.username,
+                "email": db_user.email
+            }
+        },
+        "error_code": None,
+        "message": f"Successfully authenticated via {login_data.provider.capitalize()}."
+    }
+
+@app.post("/api/auth/forgot-password", response_model=schemas.ApiResponse[dict], tags=["Authentication"])
+def forgot_password(data: schemas.ForgotPasswordRequest, db: Session = Depends(get_db)):
+    import random
+    from datetime import timedelta
+    db_user = crud.get_user_by_email(db, data.email)
+    if not db_user:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "status_code": 404,
+                "error_code": "EMAIL_NOT_FOUND",
+                "message": "We couldn't find an account matching that email address."
+            }
+        )
+        
+    # Generate 6 digit numeric code
+    otp = f"{random.randint(100000, 999999)}"
+    db_user.reset_otp = otp
+    db_user.reset_otp_expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
+    db.commit()
+    
+    # Log audit entry
+    crud.create_audit_log(
+        db,
+        action="FORGOT_PASSWORD_REQUEST",
+        user_id=db_user.id,
+        details=f"Forgot password request. Generated OTP code: {otp}"
+    )
+    
+    return {
+        "success": True,
+        "data": {
+            "demo_otp": otp  # Exposed in payload for easy manual testing / validation
+        },
+        "error_code": None,
+        "message": "Reset code generated. Use the code to verify your request."
+    }
+
+@app.post("/api/auth/reset-password", response_model=schemas.ApiResponse[dict], tags=["Authentication"])
+def reset_password(data: schemas.ResetPasswordRequest, db: Session = Depends(get_db)):
+    db_user = crud.get_user_by_email(db, data.email)
+    if not db_user:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "status_code": 404,
+                "error_code": "EMAIL_NOT_FOUND",
+                "message": "Account not found."
+            }
+        )
+        
+    if not db_user.reset_otp or db_user.reset_otp != data.otp:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "status_code": 400,
+                "error_code": "INVALID_OTP",
+                "message": "The reset code is invalid. Please double check."
+            }
+        )
+        
+    if db_user.reset_otp_expires_at and db_user.reset_otp_expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "status_code": 400,
+                "error_code": "EXPIRED_OTP",
+                "message": "The reset code has expired. Please request a new one."
+            }
+        )
+        
+    # Reset is valid, update password
+    db_user.password_hash = auth.hash_password(data.new_password)
+    db_user.reset_otp = None
+    db_user.reset_otp_expires_at = None
+    db.commit()
+    
+    # Log audit entry
+    crud.create_audit_log(
+        db,
+        action="PASSWORD_RESET_SUCCESS",
+        user_id=db_user.id,
+        details=f"Password successfully reset via recovery code."
+    )
+    
+    return {
+        "success": True,
+        "data": {"message": "Your password has been successfully reset. Please log in with your new password."},
+        "error_code": None,
+        "message": "Password reset successful."
+    }
+

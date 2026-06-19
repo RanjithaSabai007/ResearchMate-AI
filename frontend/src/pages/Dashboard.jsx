@@ -21,6 +21,7 @@ import {
 export default function Dashboard() {
   const [isDark, setIsDark] = useState(false);
   const [activeSection, setActiveSection] = useState('dashboard');
+  const [mobileOpen, setMobileOpen] = useState(false);
   const [user, setUser] = useState(null);
   const navigate = useNavigate();
 
@@ -227,13 +228,20 @@ export default function Dashboard() {
         user={user} 
         activeSection={activeSection}
         onSectionChange={setActiveSection}
+        mobileOpen={mobileOpen}
+        setMobileOpen={setMobileOpen}
       />
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         
         {/* Top Navbar */}
-        <Topbar isDark={isDark} user={user} activeSection={activeSection} />
+        <Topbar 
+          isDark={isDark} 
+          user={user} 
+          activeSection={activeSection} 
+          onMenuClick={() => setMobileOpen(true)}
+        />
 
         {/* Dynamic Panels */}
         <main className="flex-1 overflow-y-auto p-6">
@@ -245,9 +253,7 @@ export default function Dashboard() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 
                 {/* Papers Stat Card */}
-                <div className={`p-6 rounded-3xl border shadow-sm ${
-                  isDark ? 'bg-pastel-darkCard border-pastel-darkBorder' : 'bg-white border-gray-100'
-                }`}>
+                <div className="p-6 rounded-3xl gradient-card-border shadow-sm hover:shadow-md transition-all">
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm font-bold text-gray-400 uppercase tracking-wider">Total Papers</p>
@@ -260,9 +266,7 @@ export default function Dashboard() {
                 </div>
 
                 {/* Sessions Stat Card */}
-                <div className={`p-6 rounded-3xl border shadow-sm ${
-                  isDark ? 'bg-pastel-darkCard border-pastel-darkBorder' : 'bg-white border-gray-100'
-                }`}>
+                <div className="p-6 rounded-3xl gradient-card-border shadow-sm hover:shadow-md transition-all">
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm font-bold text-gray-400 uppercase tracking-wider">Active Sessions</p>
@@ -280,9 +284,7 @@ export default function Dashboard() {
                 
                 {/* Upload & Form Container */}
                 <div className="lg:col-span-5">
-                  <div className={`p-6 rounded-3xl border shadow-md ${
-                    isDark ? 'bg-pastel-darkCard border-pastel-darkBorder' : 'bg-white border-gray-100'
-                  }`}>
+                  <div className="p-6 rounded-3xl gradient-card-border shadow-md hover:shadow-lg transition-all duration-300">
                     <h2 className="text-lg font-bold mb-4 flex items-center space-x-2">
                       <Plus className="w-5 h-5 text-pastel-accent" />
                       <span>Add Research Paper</span>
@@ -412,9 +414,7 @@ export default function Dashboard() {
 
                 {/* Papers List Container */}
                 <div className="lg:col-span-7">
-                  <div className={`p-6 rounded-3xl border shadow-md ${
-                    isDark ? 'bg-pastel-darkCard border-pastel-darkBorder' : 'bg-white border-gray-100'
-                  }`}>
+                  <div className="p-6 rounded-3xl gradient-card-border shadow-md hover:shadow-lg transition-all duration-300">
                     <h2 className="text-lg font-bold mb-4 flex items-center space-x-2">
                       <BookOpen className="w-5 h-5 text-pastel-accent" />
                       <span>Stored Papers</span>
@@ -431,8 +431,10 @@ export default function Dashboard() {
                           <div 
                             key={paper.id} 
                             onClick={() => handleSelectPaper(paper)}
-                            className={`p-5 rounded-2xl border transition-all hover:shadow-md cursor-pointer ${
-                              isDark ? 'bg-gray-800/20 border-pastel-darkBorder hover:border-pastel-pink/40' : 'bg-gray-50 border-gray-100 hover:border-pastel-pink/50 hover:bg-white'
+                            className={`p-5 rounded-2xl border transition-all hover:shadow-md cursor-pointer hover-scale ${
+                              isDark 
+                                ? 'bg-gradient-to-br from-slate-900 to-indigo-950/20 border-pastel-darkBorder hover:border-pastel-accent/40 text-gray-200' 
+                                : 'bg-gradient-to-br from-white to-slate-50 border-gray-100 hover:border-pastel-pink/50 text-gray-800'
                             }`}
                           >
                             <div className="flex items-start justify-between">
@@ -490,9 +492,7 @@ export default function Dashboard() {
             <div className="max-w-7xl mx-auto space-y-6">
               
               {/* Active Sessions Panel */}
-              <div className={`p-6 rounded-3xl border shadow-md ${
-                isDark ? 'bg-pastel-darkCard border-pastel-darkBorder' : 'bg-white border-gray-100'
-              }`}>
+              <div className="p-6 rounded-3xl gradient-card-border shadow-md hover:shadow-lg transition-all duration-300">
                 <h2 className="text-lg font-bold mb-4 flex items-center space-x-2">
                   <Users className="w-5 h-5 text-pastel-accent" />
                   <span>Database Sessions (Active Connections)</span>
@@ -546,9 +546,7 @@ export default function Dashboard() {
               </div>
 
               {/* Audit Logs Table */}
-              <div className={`p-6 rounded-3xl border shadow-md ${
-                isDark ? 'bg-pastel-darkCard border-pastel-darkBorder' : 'bg-white border-gray-100'
-              }`}>
+              <div className="p-6 rounded-3xl gradient-card-border shadow-md hover:shadow-lg transition-all duration-300">
                 <h2 className="text-lg font-bold mb-4 flex items-center space-x-2">
                   <Terminal className="w-5 h-5 text-pastel-accent" />
                   <span>Real-time Secure Audit Log</span>

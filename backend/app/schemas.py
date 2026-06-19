@@ -88,4 +88,18 @@ class ApiResponse(BaseModel, Generic[T]):
     message: Optional[str] = None
     details: Optional[List[str]] = None
 
+class SocialLoginRequest(BaseModel):
+    email: EmailStr
+    username: str
+    provider: str
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    otp: str
+    new_password: str
+
+
 

@@ -1,7 +1,7 @@
 import React from 'react';
-import { Laptop } from 'lucide-react';
+import { Laptop, Menu } from 'lucide-react';
 
-export default function Topbar({ isDark, user, activeSection }) {
+export default function Topbar({ isDark, user, activeSection, onMenuClick }) {
   // Simple section headers
   const headers = {
     dashboard: 'Dashboard Overview',
@@ -16,8 +16,18 @@ export default function Topbar({ isDark, user, activeSection }) {
           : 'bg-white border-gray-100 text-gray-800'
       }`}
     >
-      {/* Page Title */}
-      <div>
+      {/* Page Title & Hamburger Menu for mobile */}
+      <div className="flex items-center space-x-3.5">
+        <button
+          onClick={onMenuClick}
+          className={`p-2 rounded-xl border hover-scale lg:hidden ${
+            isDark 
+              ? 'border-pastel-darkBorder hover:bg-gray-800 text-gray-400' 
+              : 'border-gray-100 hover:bg-gray-50 text-gray-600'
+          }`}
+        >
+          <Menu className="w-5 h-5" />
+        </button>
         <h1 className="text-xl font-bold tracking-tight">
           {headers[activeSection] || 'Overview'}
         </h1>
