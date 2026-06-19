@@ -69,14 +69,16 @@ def get_audit_logs(db: Session, user_id: UUID):
 def get_user_papers(db: Session, user_id: UUID):
     return db.query(models.Paper).filter(models.Paper.user_id == user_id).order_by(models.Paper.created_at.desc()).all()
 
-def create_user_paper(db: Session, paper: schemas.PaperCreate, user_id: UUID):
+def create_user_paper(db: Session, title: str, author: str, domain: str, keywords: str, abstract: str, file_name: str, file_data: bytes, user_id: UUID):
     db_paper = models.Paper(
         user_id=user_id,
-        title=paper.title,
-        author=paper.author,
-        domain=paper.domain,
-        keywords=paper.keywords,
-        abstract=paper.abstract
+        title=title,
+        author=author,
+        domain=domain,
+        keywords=keywords,
+        abstract=abstract,
+        file_name=file_name,
+        file_data=file_data
     )
     db.add(db_paper)
     db.commit()

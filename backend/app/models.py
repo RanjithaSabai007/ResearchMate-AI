@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, DateTime, Boolean, ForeignKey, Integer
+from sqlalchemy import Column, String, DateTime, Boolean, ForeignKey, Integer, LargeBinary
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.database import Base
@@ -59,6 +59,8 @@ class Paper(Base):
     domain = Column(String, nullable=False)
     keywords = Column(String, nullable=True)
     abstract = Column(String, nullable=True)
+    file_name = Column(String, nullable=True)
+    file_data = Column(LargeBinary, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     
     user = relationship("User", back_populates="papers")

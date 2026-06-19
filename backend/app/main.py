@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, Request, Response, status
+from fastapi import FastAPI, Depends, HTTPException, Request, Response, status, UploadFile, File, Form
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -348,26 +348,87 @@ def get_papers(
     }
 
 @app.post("/api/papers", response_model=schemas.ApiResponse[schemas.PaperResponse], status_code=status.HTTP_201_CREATED, tags=["Research Papers"])
-def create_paper(
-    paper_data: schemas.PaperCreate,
+async def create_paper(
+    title: str = Form(...),
+    author: str = Form(...),
+    domain: str = Form(...),
+    keywords: str = Form(None),
+    abstract: str = Form(None),
+    file: UploadFile = File(None),
     current_session: models.Session = Depends(get_current_session),
     db: Session = Depends(get_db)
 ):
+    file_name = None
+    file_data = None
+    if file:
+        file_name = file.filename
+        file_data = await file.read()
+
     # Log audit entry for adding a paper
     crud.create_audit_log(
         db,
         action="ADD_PAPER",
         user_id=current_session.user_id,
         session_id=current_session.id,
-        details=f"Added paper: {paper_data.title}"
+        details=f"Added paper: {title}"
     )
-    new_paper = crud.create_user_paper(db, paper_data, current_session.user_id)
+    
+    new_paper = crud.create_user_paper(
+        db,
+        title=title,
+        author=author,
+        domain=domain,
+        keywords=keywords,
+        abstract=abstract,
+        file_name=file_name,
+        file_data=file_data,
+        user_id=current_session.user_id
+    )
     return {
         "success": True,
         "data": new_paper,
         "error_code": None,
         "message": "Paper created successfully."
     }
+
+@app.get("/api/papers/{paper_id}/file", tags=["Research Papers"])
+def get_paper_file(
+    paper_id: UUID,
+    current_session: models.Session = Depends(get_current_session),
+    db: Session = Depends(get_db)
+):
+    db_paper = db.query(models.Paper).filter(
+        models.Paper.id == paper_id, 
+        models.Paper.user_id == current_session.user_id
+    ).first()
+    
+    if not db_paper:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "status_code": 404,
+                "error_code": "PAPER_NOT_FOUND",
+                "message": "The requested paper record could not be found."
+            }
+        )
+        
+    if not db_paper.file_data:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "status_code": 404,
+                "error_code": "FILE_NOT_FOUND",
+                "message": "No file was uploaded for this research paper record."
+            }
+        )
+        
+    return Response(
+        content=db_paper.file_data,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"inline; filename={db_paper.file_name}"
+        }
+    )
 
 @app.delete("/api/papers/{paper_id}", response_model=schemas.ApiResponse[dict], tags=["Research Papers"])
 def delete_paper(

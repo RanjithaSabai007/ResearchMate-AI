@@ -13,7 +13,9 @@ import {
   BookOpen, 
   Trash2, 
   CheckCircle,
-  AlertCircle
+  AlertCircle,
+  X,
+  Download
 } from 'lucide-react';
 
 export default function Dashboard() {
@@ -29,6 +31,11 @@ export default function Dashboard() {
   const [activeSessions, setActiveSessions] = useState([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState(false);
+
+  // View PDF Modal State
+  const [selectedPaper, setSelectedPaper] = useState(null);
+  const [pdfUrl, setPdfUrl] = useState(null);
+  const [loadingPdf, setLoadingPdf] = useState(false);
 
   // Form state
   const [paperForm, setPaperForm] = useState({
@@ -98,11 +105,9 @@ export default function Dashboard() {
   const fetchAuditLogs = async () => {
     setLoadingLogs(true);
     try {
-      // Fetch audit logs (decrypted automatically in interceptor)
       const logsResponse = await api.get('/api/auth/audit-logs');
       setAuditLogs(logsResponse.data);
       
-      // Fetch active database sessions (decrypted automatically in interceptor)
       const sessionsResponse = await api.get('/api/auth/sessions');
       const currentToken = localStorage.getItem('session_token');
       
@@ -125,7 +130,6 @@ export default function Dashboard() {
   const handleRevokeSession = async (sessionId) => {
     try {
       await api.delete(`/api/auth/sessions/${sessionId}`);
-      // Refresh session lists and audit log history
       fetchAuditLogs();
     } catch (err) {
       console.error("Failed to revoke active session:", err);
@@ -147,12 +151,20 @@ export default function Dashboard() {
     setUploadSuccess(false);
     
     try {
-      const response = await api.post('/api/papers', {
-        title: paperForm.title,
-        author: paperForm.author,
-        domain: paperForm.domain,
-        keywords: paperForm.keywords,
-        abstract: paperForm.abstract
+      const formData = new FormData();
+      formData.append('title', paperForm.title);
+      formData.append('author', paperForm.author);
+      formData.append('domain', paperForm.domain);
+      if (paperForm.keywords) formData.append('keywords', paperForm.keywords);
+      if (paperForm.abstract) formData.append('abstract', paperForm.abstract);
+      if (selectedFile) {
+        formData.append('file', selectedFile);
+      }
+
+      const response = await api.post('/api/papers', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
       });
 
       setPapers([response.data, ...papers]);
@@ -169,9 +181,40 @@ export default function Dashboard() {
     try {
       await api.delete(`/api/papers/${id}`);
       setPapers(papers.filter(p => p.id !== id));
+      if (selectedPaper && selectedPaper.id === id) {
+        handleCloseModal();
+      }
     } catch (err) {
       console.error("Failed to delete paper:", err);
     }
+  };
+
+  const handleSelectPaper = async (paper) => {
+    setSelectedPaper(paper);
+    setPdfUrl(null);
+    if (paper.file_name) {
+      setLoadingPdf(true);
+      try {
+        const response = await api.get(`/api/papers/${paper.id}/file`, {
+          responseType: 'blob'
+        });
+        const blob = new Blob([response.data], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        setPdfUrl(url);
+      } catch (err) {
+        console.error("Failed to load PDF file:", err);
+      } finally {
+        setLoadingPdf(false);
+      }
+    }
+  };
+
+  const handleCloseModal = () => {
+    if (pdfUrl) {
+      URL.revokeObjectURL(pdfUrl);
+    }
+    setSelectedPaper(null);
+    setPdfUrl(null);
   };
 
   return (
@@ -263,7 +306,7 @@ export default function Dashboard() {
                           value={paperForm.title}
                           onChange={handleInputChange}
                           className={`w-full px-4 py-2.5 rounded-xl text-sm border focus:outline-none focus:border-pastel-pink/50 ${
-                            isDark ? 'bg-gray-800/50 border-pastel-darkBorder text-gray-200' : 'bg-gray-50 border-gray-100'
+                            isDark ? 'bg-gray-800/50 border-pastel-darkBorder text-gray-200' : 'bg-gray-55 border-gray-100'
                           }`}
                         />
                       </div>
@@ -279,7 +322,7 @@ export default function Dashboard() {
                             value={paperForm.author}
                             onChange={handleInputChange}
                             className={`w-full px-4 py-2.5 rounded-xl text-sm border focus:outline-none focus:border-pastel-pink/50 ${
-                              isDark ? 'bg-gray-800/50 border-pastel-darkBorder text-gray-200' : 'bg-gray-50 border-gray-100'
+                              isDark ? 'bg-gray-800/50 border-pastel-darkBorder text-gray-200' : 'bg-gray-55 border-gray-100'
                             }`}
                           />
                         </div>
@@ -293,7 +336,7 @@ export default function Dashboard() {
                             value={paperForm.domain}
                             onChange={handleInputChange}
                             className={`w-full px-4 py-2.5 rounded-xl text-sm border focus:outline-none focus:border-pastel-pink/50 ${
-                              isDark ? 'bg-gray-800/50 border-pastel-darkBorder text-gray-200' : 'bg-gray-50 border-gray-100'
+                              isDark ? 'bg-gray-800/50 border-pastel-darkBorder text-gray-200' : 'bg-gray-55 border-gray-100'
                             }`}
                           />
                         </div>
@@ -308,7 +351,7 @@ export default function Dashboard() {
                           value={paperForm.keywords}
                           onChange={handleInputChange}
                           className={`w-full px-4 py-2.5 rounded-xl text-sm border focus:outline-none focus:border-pastel-pink/50 ${
-                            isDark ? 'bg-gray-800/50 border-pastel-darkBorder text-gray-200' : 'bg-gray-50 border-gray-100'
+                            isDark ? 'bg-gray-800/50 border-pastel-darkBorder text-gray-200' : 'bg-gray-55 border-gray-100'
                           }`}
                         />
                       </div>
@@ -322,7 +365,7 @@ export default function Dashboard() {
                           value={paperForm.abstract}
                           onChange={handleInputChange}
                           className={`w-full px-4 py-2.5 rounded-xl text-sm border focus:outline-none focus:border-pastel-pink/50 resize-none ${
-                            isDark ? 'bg-gray-800/50 border-pastel-darkBorder text-gray-200' : 'bg-gray-50 border-gray-100'
+                            isDark ? 'bg-gray-800/50 border-pastel-darkBorder text-gray-200' : 'bg-gray-55 border-gray-100'
                           }`}
                         />
                       </div>
@@ -333,7 +376,7 @@ export default function Dashboard() {
                         <div className={`border-2 border-dashed rounded-2xl p-4 text-center cursor-pointer transition-colors ${
                           isDark 
                             ? 'border-pastel-darkBorder hover:border-pastel-pink/40 hover:bg-gray-800/20' 
-                            : 'border-gray-200 hover:border-pastel-pink/50 hover:bg-gray-50'
+                            : 'border-gray-200 hover:border-pastel-pink/50 hover:bg-gray-55'
                         }`}>
                           <input
                             type="file"
@@ -387,19 +430,23 @@ export default function Dashboard() {
                         {papers.map((paper) => (
                           <div 
                             key={paper.id} 
-                            className={`p-5 rounded-2xl border transition-all hover:shadow-sm ${
-                              isDark ? 'bg-gray-800/20 border-pastel-darkBorder' : 'bg-gray-50 border-gray-100'
+                            onClick={() => handleSelectPaper(paper)}
+                            className={`p-5 rounded-2xl border transition-all hover:shadow-md cursor-pointer ${
+                              isDark ? 'bg-gray-800/20 border-pastel-darkBorder hover:border-pastel-pink/40' : 'bg-gray-50 border-gray-100 hover:border-pastel-pink/50 hover:bg-white'
                             }`}
                           >
                             <div className="flex items-start justify-between">
                               <div className="space-y-1">
                                 <h3 className="font-bold text-md text-pastel-accent leading-snug">{paper.title}</h3>
-                                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">
+                                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mt-0.5">
                                   {paper.author} &bull; {paper.domain}
                                 </p>
                               </div>
                               <button
-                                onClick={() => handleDeletePaper(paper.id)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeletePaper(paper.id);
+                                }}
                                 className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors"
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -466,7 +513,7 @@ export default function Dashboard() {
                     </thead>
                     <tbody className="text-sm divide-y divide-gray-100 dark:divide-pastel-darkBorder">
                       {activeSessions.map((session) => (
-                        <tr key={session.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/10">
+                        <tr key={session.id} className="hover:bg-gray-55/50 dark:hover:bg-gray-800/10">
                           <td className="py-3.5 font-semibold">{session.device}</td>
                           <td className="py-3.5 text-gray-400 font-mono">{session.ip}</td>
                           <td className="py-3.5 text-gray-400">{session.date}</td>
@@ -527,7 +574,7 @@ export default function Dashboard() {
                       </thead>
                       <tbody className="text-xs font-mono divide-y divide-gray-100 dark:divide-pastel-darkBorder">
                         {auditLogs.map((log) => (
-                          <tr key={log.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/10">
+                          <tr key={log.id} className="hover:bg-gray-55/50 dark:hover:bg-gray-800/10">
                             <td className="py-3 text-gray-400">
                               {new Date(log.created_at).toLocaleString()}
                             </td>
@@ -557,6 +604,121 @@ export default function Dashboard() {
 
         </main>
       </div>
+
+      {/* View Paper & PDF Modal */}
+      {selectedPaper && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className={`w-full max-w-6xl h-[85vh] rounded-3xl overflow-hidden flex flex-col shadow-2xl transition-all duration-300 ${
+            isDark ? 'bg-pastel-darkCard border border-pastel-darkBorder text-gray-200' : 'bg-white text-gray-800'
+          }`}>
+            {/* Modal Header */}
+            <div className="p-5 border-b flex items-center justify-between dark:border-pastel-darkBorder">
+              <div className="overflow-hidden mr-4">
+                <h3 className="font-extrabold text-lg text-pastel-accent truncate leading-snug">{selectedPaper.title}</h3>
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mt-0.5">
+                  {selectedPaper.author} &bull; {selectedPaper.domain}
+                </p>
+              </div>
+              <div className="flex items-center space-x-2 flex-shrink-0">
+                {pdfUrl && (
+                  <a 
+                    href={pdfUrl} 
+                    download={selectedPaper.file_name || 'research_paper.pdf'} 
+                    className="flex items-center space-x-2 px-4 py-2 bg-pastel-accent hover:bg-pastel-accent/90 text-white text-xs font-bold rounded-xl transition-all shadow-sm flex-shrink-0 hover-scale"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span className="hidden sm:inline">Download PDF</span>
+                  </a>
+                )}
+                <button 
+                  onClick={handleCloseModal}
+                  className={`p-2 rounded-xl border hover-scale ${
+                    isDark ? 'border-pastel-darkBorder hover:bg-gray-800 text-gray-400' : 'border-gray-100 hover:bg-gray-55 text-gray-500'
+                  }`}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+              {/* Left Column: Metadata */}
+              <div className="w-full md:w-2/5 p-6 overflow-y-auto border-r dark:border-pastel-darkBorder space-y-5">
+                <div>
+                  <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1.5">Academic Domain</h4>
+                  <span className="px-3 py-1 rounded-lg text-xs font-bold bg-pastel-pink/20 text-pastel-accent border border-pastel-pink/30">
+                    {selectedPaper.domain}
+                  </span>
+                </div>
+
+                <div>
+                  <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Author(s)</h4>
+                  <p className="text-sm font-semibold text-gray-600 dark:text-gray-300">{selectedPaper.author}</p>
+                </div>
+
+                {selectedPaper.keywords && (
+                  <div>
+                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Keywords</h4>
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedPaper.keywords.split(',').map((kw, i) => (
+                        <span 
+                          key={i} 
+                          className={`px-2.5 py-1 rounded-md text-[10px] font-bold ${
+                            isDark 
+                              ? 'bg-gray-800 text-pastel-pink border border-pastel-darkBorder' 
+                              : 'bg-gray-50 text-pastel-accent border border-gray-100'
+                          }`}
+                        >
+                          {kw.trim()}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {selectedPaper.abstract && (
+                  <div>
+                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1.5">Abstract</h4>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed font-medium">
+                      {selectedPaper.abstract}
+                    </p>
+                  </div>
+                )}
+
+                {selectedPaper.file_name && (
+                  <div>
+                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Attached PDF File</h4>
+                    <p className="text-xs font-mono text-gray-500 dark:text-gray-400 truncate">{selectedPaper.file_name}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Right Column: PDF Viewer */}
+              <div className="w-full md:w-3/5 bg-gray-100 dark:bg-gray-900 flex flex-col items-center justify-center relative overflow-hidden">
+                {loadingPdf ? (
+                  <div className="text-center">
+                    <div className="w-10 h-10 border-2 border-pastel-accent border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+                    <p className="text-xs text-gray-400 font-semibold">Retrieving PDF document securely...</p>
+                  </div>
+                ) : pdfUrl ? (
+                  <iframe 
+                    src={pdfUrl} 
+                    className="w-full h-full border-none" 
+                    title="Research PDF Viewer"
+                  />
+                ) : (
+                  <div className="text-center p-8 text-gray-400 max-w-sm">
+                    <FileText className="w-16 h-16 mx-auto mb-3 opacity-30" />
+                    <p className="font-bold text-sm">No PDF File Attached</p>
+                    <p className="text-xs text-gray-400/80 mt-1 leading-relaxed">This research paper record is stored with metadata details only. Upload a PDF file when creating a paper to enable viewing.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

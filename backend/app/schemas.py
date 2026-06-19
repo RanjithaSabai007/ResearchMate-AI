@@ -73,6 +73,7 @@ class PaperCreate(PaperBase):
 class PaperResponse(PaperBase):
     id: UUID
     user_id: UUID
+    file_name: Optional[str] = None
     created_at: datetime
 
     class Config:
