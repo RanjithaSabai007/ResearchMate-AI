@@ -16,6 +16,8 @@ class User(Base):
     password_hash = Column(String, nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     
+    google_id = Column(String, nullable=True, unique=True)
+    
     # Password reset columns
     reset_otp = Column(String, nullable=True)
     reset_otp_expires_at = Column(DateTime, nullable=True)

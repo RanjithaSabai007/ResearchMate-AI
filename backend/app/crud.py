@@ -93,3 +93,14 @@ def delete_user_paper(db: Session, paper_id: UUID, user_id: UUID):
         return True
     return False
 
+def get_user_by_google_id(
+    db: Session,
+    google_id: str
+):
+    return (
+        db.query(models.User)
+        .filter(
+            models.User.google_id == google_id
+        )
+        .first()
+    )

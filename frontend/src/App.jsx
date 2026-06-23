@@ -31,54 +31,54 @@ function App() {
     <Router>
       <Routes>
         <Route path="/" element={<Landing />} />
-        
+
         <Route path="/terms" element={<Terms />} />
-        
-        <Route 
-          path="/forgot-password" 
+
+        <Route
+          path="/forgot-password"
           element={
             <PublicRoute>
               <ForgotPassword />
             </PublicRoute>
-          } 
+          }
         />
-        
-        <Route 
-          path="/reset-password" 
+
+        <Route
+          path="/reset-password"
           element={
             <PublicRoute>
               <ResetPassword />
             </PublicRoute>
-          } 
+          }
         />
-        
-        <Route 
-          path="/login" 
+
+        <Route
+          path="/login"
           element={
             <PublicRoute>
               <Login />
             </PublicRoute>
-          } 
+          }
         />
-        
-        <Route 
-          path="/signup" 
+
+        <Route
+          path="/signup"
           element={
             <PublicRoute>
               <Signup />
             </PublicRoute>
-          } 
+          }
         />
-        
-        <Route 
-          path="/dashboard" 
+
+        <Route
+          path="/dashboard"
           element={
             <ProtectedRoute>
               <Dashboard />
             </ProtectedRoute>
-          } 
+          }
         />
-        
+
         {/* Fallback routing */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

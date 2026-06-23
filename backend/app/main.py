@@ -7,6 +7,22 @@ from datetime import datetime, timezone
 import json
 from uuid import UUID
 
+from authlib.integrations.starlette_client import OAuth
+from starlette.config import Config
+from starlette.middleware.sessions import SessionMiddleware
+from app.config import (
+    GOOGLE_CLIENT_ID,
+    GOOGLE_CLIENT_SECRET,
+    MICROSOFT_CLIENT_ID,
+    MICROSOFT_CLIENT_SECRET,
+    LINKEDIN_CLIENT_ID,
+    LINKEDIN_CLIENT_SECRET,
+    GITHUB_CLIENT_ID,
+    GITHUB_CLIENT_SECRET,
+    JWT_SECRET
+)
+
+
 from app import models, schemas, crud, auth
 from app.database import engine, get_db
 
@@ -18,6 +34,71 @@ app = FastAPI(
     description="Secure research management backend",
     version="1.0.0"
 )
+config_data = {
+    "GOOGLE_CLIENT_ID": GOOGLE_CLIENT_ID or "placeholder",
+    "GOOGLE_CLIENT_SECRET": GOOGLE_CLIENT_SECRET or "placeholder",
+    "MICROSOFT_CLIENT_ID": MICROSOFT_CLIENT_ID or "placeholder",
+    "MICROSOFT_CLIENT_SECRET": MICROSOFT_CLIENT_SECRET or "placeholder",
+    "LINKEDIN_CLIENT_ID": LINKEDIN_CLIENT_ID or "placeholder",
+    "LINKEDIN_CLIENT_SECRET": LINKEDIN_CLIENT_SECRET or "placeholder",
+    "GITHUB_CLIENT_ID": GITHUB_CLIENT_ID or "placeholder",
+    "GITHUB_CLIENT_SECRET": GITHUB_CLIENT_SECRET or "placeholder",
+}
+
+config = Config(environ=config_data)
+oauth = OAuth(config)
+
+# Google SSO
+oauth.register(
+    name="google",
+    client_id=GOOGLE_CLIENT_ID or "placeholder",
+    client_secret=GOOGLE_CLIENT_SECRET or "placeholder",
+    server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
+    client_kwargs={
+        "scope": "openid email profile"
+    }
+)
+
+# Microsoft SSO
+oauth.register(
+    name="microsoft",
+    client_id=MICROSOFT_CLIENT_ID or "placeholder",
+    client_secret=MICROSOFT_CLIENT_SECRET or "placeholder",
+    server_metadata_url="https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration",
+    client_kwargs={
+        "scope": "openid email profile User.Read"
+    }
+)
+
+# LinkedIn SSO
+oauth.register(
+    name="linkedin",
+    client_id=LINKEDIN_CLIENT_ID or "placeholder",
+    client_secret=LINKEDIN_CLIENT_SECRET or "placeholder",
+    server_metadata_url="https://www.linkedin.com/oauth/.well-known/openid-configuration",
+    client_kwargs={
+        "scope": "openid profile email"
+    }
+)
+
+# GitHub SSO
+oauth.register(
+    name="github",
+    client_id=GITHUB_CLIENT_ID or "placeholder",
+    client_secret=GITHUB_CLIENT_SECRET or "placeholder",
+    access_token_url="https://github.com/login/oauth/access_token",
+    authorize_url="https://github.com/login/oauth/authorize",
+    api_base_url="https://api.github.com/",
+    client_kwargs={
+        "scope": "user:email"
+    }
+)
+
+# Session Middleware (Required by Authlib to track OAuth state)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=JWT_SECRET
+)
 
 # CORS Configuration
 # Since we are running locally (e.g. FastAPI on 8000, Vite on 5173), we allow the origins.
@@ -28,6 +109,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"]
 )
+
 
 # Global Exception Handlers for Unified Response Formatting
 @app.exception_handler(HTTPException)
@@ -334,6 +416,187 @@ def revoke_session(
         "error_code": None,
         "message": "Session revoked successfully."
     }
+
+def verify_sso_configured(provider: str, client_id: str, client_secret: str):
+    if not client_id or not client_secret or client_id == "placeholder" or client_secret == "placeholder":
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "status_code": 400,
+                "error_code": "SSO_NOT_CONFIGURED",
+                "message": f"{provider.capitalize()} SSO is not configured on the server. Please add your credentials to backend/.env."
+            }
+        )
+
+@app.get("/api/auth/{provider}/login")
+async def sso_login(provider: str, request: Request):
+    if provider == "google":
+        verify_sso_configured("google", GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET)
+        redirect_uri = "http://localhost:8000/api/auth/google/callback"
+        return await oauth.google.authorize_redirect(request, redirect_uri)
+    elif provider == "microsoft":
+        verify_sso_configured("microsoft", MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET)
+        redirect_uri = "http://localhost:8000/api/auth/microsoft/callback"
+        return await oauth.microsoft.authorize_redirect(request, redirect_uri)
+    elif provider == "linkedin":
+        verify_sso_configured("linkedin", LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET)
+        redirect_uri = "http://localhost:8000/api/auth/linkedin/callback"
+        return await oauth.linkedin.authorize_redirect(request, redirect_uri)
+    elif provider == "github":
+        verify_sso_configured("github", GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET)
+        redirect_uri = "http://localhost:8000/api/auth/github/callback"
+        return await oauth.github.authorize_redirect(request, redirect_uri)
+    else:
+        raise HTTPException(status_code=400, detail="Unknown SSO provider.")
+
+# Helper to login/create user and redirect to frontend
+def handle_sso_success(request: Request, db: Session, email: str, username: str, provider: str):
+    import urllib.parse
+    import secrets
+    from fastapi.responses import RedirectResponse
+    
+    db_user = crud.get_user_by_email(db, email)
+    if not db_user:
+        # Check if username is already taken, if so append random characters
+        base_username = username
+        counter = 1
+        while crud.get_user_by_username(db, username):
+            username = f"{base_username}{counter}"
+            counter += 1
+            
+        rand_pwd = secrets.token_hex(16)
+        user_create = schemas.UserCreate(
+            username=username,
+            email=email,
+            password=rand_pwd
+        )
+        db_user = crud.create_user(db, user_create)
+        
+    user_agent = request.headers.get("user-agent", "Unknown")
+    ip_address = request.client.host if request.client else "Unknown"
+    
+    db_session = auth.create_user_session(
+        db,
+        user_id=db_user.id,
+        ip_address=ip_address,
+        user_agent=user_agent
+    )
+    
+    # Log audit entry
+    crud.create_audit_log(
+        db,
+        action="SOCIAL_LOGIN",
+        user_id=db_user.id,
+        session_id=db_session.id,
+        ip_address=ip_address,
+        details=f"Successful social login via {provider.capitalize()} as {email}"
+    )
+    
+    user_data = {
+        "id": str(db_user.id),
+        "username": db_user.username,
+        "email": db_user.email
+    }
+    user_json = json.dumps(user_data)
+    frontend_url = f"http://localhost:5173/login?token={db_session.session_token}&user={urllib.parse.quote(user_json)}"
+    return RedirectResponse(url=frontend_url)
+
+@app.get("/api/auth/google/callback")
+async def google_callback(request: Request, db: Session = Depends(get_db)):
+    try:
+        token = await oauth.google.authorize_access_token(request)
+    except Exception as e:
+        import urllib.parse
+        error_msg = urllib.parse.quote(f"Google authentication failed: {str(e)}")
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=f"http://localhost:5173/login?error={error_msg}")
+        
+    user_info = token.get("userinfo")
+    if not user_info:
+        user_info = await oauth.google.parse_id_token(request, token)
+        
+    if not user_info:
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url="http://localhost:5173/login?error=Failed+to+retrieve+user+info+from+Google")
+        
+    email = user_info.get("email")
+    username = user_info.get("name") or email.split("@")[0]
+    
+    return handle_sso_success(request, db, email, username, "google")
+
+@app.get("/api/auth/microsoft/callback")
+async def microsoft_callback(request: Request, db: Session = Depends(get_db)):
+    try:
+        token = await oauth.microsoft.authorize_access_token(request)
+    except Exception as e:
+        import urllib.parse
+        error_msg = urllib.parse.quote(f"Microsoft authentication failed: {str(e)}")
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=f"http://localhost:5173/login?error={error_msg}")
+        
+    user_info = token.get("userinfo")
+    if not user_info:
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url="http://localhost:5173/login?error=Failed+to+retrieve+user+info+from+Microsoft")
+        
+    email = user_info.get("email") or user_info.get("preferred_username")
+    username = user_info.get("name") or user_info.get("given_name") or email.split("@")[0]
+    
+    return handle_sso_success(request, db, email, username, "microsoft")
+
+@app.get("/api/auth/linkedin/callback")
+async def linkedin_callback(request: Request, db: Session = Depends(get_db)):
+    try:
+        token = await oauth.linkedin.authorize_access_token(request)
+    except Exception as e:
+        import urllib.parse
+        error_msg = urllib.parse.quote(f"LinkedIn authentication failed: {str(e)}")
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=f"http://localhost:5173/login?error={error_msg}")
+        
+    user_info = token.get("userinfo")
+    if not user_info:
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url="http://localhost:5173/login?error=Failed+to+retrieve+user+info+from+LinkedIn")
+        
+    email = user_info.get("email")
+    username = user_info.get("name") or f"{user_info.get('given_name', '')} {user_info.get('family_name', '')}".strip() or email.split("@")[0]
+    
+    return handle_sso_success(request, db, email, username, "linkedin")
+
+@app.get("/api/auth/github/callback")
+async def github_callback(request: Request, db: Session = Depends(get_db)):
+    try:
+        token = await oauth.github.authorize_access_token(request)
+    except Exception as e:
+        import urllib.parse
+        error_msg = urllib.parse.quote(f"GitHub authentication failed: {str(e)}")
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=f"http://localhost:5173/login?error={error_msg}")
+        
+    # Get user profile info
+    resp = await oauth.github.get("user", token=token)
+    user_data = resp.json()
+    
+    # Try public email
+    email = user_data.get("email")
+    if not email:
+        # Fetch all emails (including private/primary)
+        emails_resp = await oauth.github.get("user/emails", token=token)
+        if emails_resp.status_code == 200:
+            emails = emails_resp.json()
+            email = next((e["email"] for e in emails if e.get("primary")), None)
+            if not email and emails:
+                email = emails[0].get("email")
+                
+    if not email:
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url="http://localhost:5173/login?error=GitHub+account+must+have+a+verified+email")
+        
+    username = user_data.get("login") or user_data.get("name") or email.split("@")[0]
+    
+    return handle_sso_success(request, db, email, username, "github")
+
 
 @app.get("/api/papers", response_model=schemas.ApiResponse[list[schemas.PaperResponse]], tags=["Research Papers"])
 def get_papers(
