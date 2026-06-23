@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
+from app.ai import router as ai_router
 import json
 from uuid import UUID
 
@@ -34,6 +35,9 @@ app = FastAPI(
     description="Secure research management backend",
     version="1.0.0"
 )
+
+app.include_router(ai_router)
+
 config_data = {
     "GOOGLE_CLIENT_ID": GOOGLE_CLIENT_ID or "placeholder",
     "GOOGLE_CLIENT_SECRET": GOOGLE_CLIENT_SECRET or "placeholder",
