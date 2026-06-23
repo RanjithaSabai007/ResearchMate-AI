@@ -24,5 +24,7 @@ async def extract_pdf_metadata(
 
     return {
         "success": True,
-        "metadata": metadata
+        "data": {
+            "metadata": metadata
+        }
     }

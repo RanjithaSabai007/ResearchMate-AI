@@ -51,3 +51,11 @@ Paper:
             "keywords": [],
             "abstract": ""
         }
+
+    result = response["message"]["content"]
+
+    print("\n===== MISTRAL RAW RESPONSE =====")
+    print(result)
+    print("================================\n")
+
+    return result

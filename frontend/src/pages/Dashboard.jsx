@@ -47,6 +47,8 @@ export default function Dashboard() {
     abstract: ''
   });
   const [selectedFile, setSelectedFile] = useState(null);
+  const [extractingMetadata, setExtractingMetadata] = useState(false);
+  const [metadataError, setMetadataError] = useState('');
 
   const fetchPapers = async () => {
     try {
@@ -141,11 +143,57 @@ export default function Dashboard() {
     setPaperForm({ ...paperForm, [e.target.name]: e.target.value });
   };
 
-  const handleFileChange = (e) => {
-    if (e.target.files && e.target.files[0]) {
-      setSelectedFile(e.target.files[0]);
+  const handleFileChange = async (e) => {
+  const file = e.target.files?.[0];
+
+  if (!file) return;
+
+  setSelectedFile(file);
+  setMetadataError('');
+  setExtractingMetadata(true);
+
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await api.post(
+      '/api/ai/extract-metadata',
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      }
+    );
+
+    let metadata = response.data.metadata;
+
+    if (typeof metadata === 'string') {
+      metadata = JSON.parse(metadata);
     }
-  };
+
+    setPaperForm({
+      title: metadata.title || '',
+      author: Array.isArray(metadata.author)
+        ? metadata.author.join(', ')
+        : metadata.author || '',
+      domain: metadata.domain || '',
+      keywords: Array.isArray(metadata.keywords)
+        ? metadata.keywords.join(', ')
+        : metadata.keywords || '',
+      abstract: metadata.abstract || ''
+    });
+
+  } catch (error) {
+    console.error('Metadata extraction failed:', error);
+
+    setMetadataError(
+      'AI could not extract metadata from this PDF.'
+    );
+  } finally {
+    setExtractingMetadata(false);
+  }
+};
 
   const handleFormSubmit = async (e) => {
     e.preventDefault();
@@ -297,6 +345,22 @@ export default function Dashboard() {
                       </div>
                     )}
 
+                    {extractingMetadata && (
+                      <div className="mb-4 flex items-center space-x-2 p-3 rounded-xl bg-blue-50 text-blue-700 text-sm font-semibold border border-blue-200">
+                        <AlertCircle className="w-4 h-4" />
+                        <span>
+                          AI is analyzing the paper and extracting metadata...
+                        </span>
+                      </div>
+                    )}
+
+                    {metadataError && (
+                      <div className="mb-4 flex items-center space-x-2 p-3 rounded-xl bg-red-50 text-red-700 text-sm font-semibold border border-red-200">
+                        <AlertCircle className="w-4 h-4" />
+                        <span>{metadataError}</span>
+                      </div>
+                    )}
+
                     <form onSubmit={handleFormSubmit} className="space-y-4">
                       <div>
                         <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">Paper Title</label>
@@ -403,10 +467,15 @@ export default function Dashboard() {
 
                       <button
                         type="submit"
+                        disabled={extractingMetadata}
                         className="w-full py-3 bg-pastel-accent hover:bg-pastel-accent/90 text-white font-bold rounded-2xl transition-all shadow-sm hover-scale flex items-center justify-center space-x-2"
                       >
                         <Plus className="w-5 h-5" />
-                        <span>Add Paper</span>
+                        <span>
+                          {extractingMetadata
+                            ? 'Analyzing Paper...'
+                            : 'Add Paper'}
+                        </span>
                       </button>
                     </form>
                   </div>
