@@ -158,18 +158,45 @@ export default function Dashboard() {
   setExtractingMetadata(true);
   setShowMetadataForm(false);
   setLoadingProgress(0);
+  setLoadingMessage("Uploading PDF...");
+
+  let stage = 0;
+
+  const stages = [
+    "Uploading PDF...",
+    "Reading document structure...",
+    "AI analyzing content...",
+    "Extracting metadata...",
+    "Finalizing results..."
+  ];
 
   const progressInterval = setInterval(() => {
+    setLoadingProgress(prev => {
+      const next = prev + Math.floor(Math.random() * 6 + 3);
 
-  setLoadingProgress(prev => {
+      // Stage updates
+      if (next > 20 && stage === 0) {
+        stage = 1;
+        setLoadingMessage(stages[1]);
+      }
+      if (next > 40 && stage === 1) {
+        stage = 2;
+        setLoadingMessage(stages[2]);
+      }
+      if (next > 65 && stage === 2) {
+        stage = 3;
+        setLoadingMessage(stages[3]);
+      }
+      if (next > 85 && stage === 3) {
+        stage = 4;
+        setLoadingMessage(stages[4]);
+      }
 
-    if (prev >= 95) return prev;
+      if (next >= 95) return 95;
 
-    return prev + Math.floor(Math.random() * 8);
-
-  });
-
-}, 500);
+      return next;
+    });
+  }, 400);
 
   try {
     const formData = new FormData();
@@ -210,8 +237,15 @@ export default function Dashboard() {
       'AI could not extract metadata from this PDF.'
     );
   } finally {
-    setExtractingMetadata(false);
-  }
+      clearInterval(progressInterval);
+      setLoadingProgress(100);
+
+      setTimeout(() => {
+        setExtractingMetadata(false);
+        setLoadingProgress(0);
+        setLoadingMessage("Preparing document...");
+      }, 600);
+    }
 };
 
   const handleFormSubmit = async (e) => {
@@ -368,7 +402,7 @@ export default function Dashboard() {
                       <div className="mb-4 flex items-center space-x-2 p-3 rounded-xl bg-blue-50 text-blue-700 text-sm font-semibold border border-blue-200">
                         <AlertCircle className="w-4 h-4" />
                         <span>
-                          AI is analyzing the paper and extracting metadata...
+                          AI is analyzing the paper...
                         </span>
                       </div>
                     )}
@@ -381,88 +415,19 @@ export default function Dashboard() {
                     )}
 
                     <form onSubmit={handleFormSubmit} className="space-y-4">
-                      <div>
-                        <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">Paper Title</label>
-                        <input
-                          required
-                          type="text"
-                          name="title"
-                          placeholder="e.g. Attention Is All You Need"
-                          value={paperForm.title}
-                          onChange={handleInputChange}
-                          className={`w-full px-4 py-2.5 rounded-xl text-sm border focus:outline-none focus:border-pastel-pink/50 ${
-                            isDark ? 'bg-gray-800/50 border-pastel-darkBorder text-gray-200' : 'bg-gray-55 border-gray-100'
-                          }`}
-                        />
-                      </div>
 
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">Author(s)</label>
-                          <input
-                            required
-                            type="text"
-                            name="author"
-                            placeholder="Vaswani et al."
-                            value={paperForm.author}
-                            onChange={handleInputChange}
-                            className={`w-full px-4 py-2.5 rounded-xl text-sm border focus:outline-none focus:border-pastel-pink/50 ${
-                              isDark ? 'bg-gray-800/50 border-pastel-darkBorder text-gray-200' : 'bg-gray-55 border-gray-100'
-                            }`}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">Domain</label>
-                          <input
-                            required
-                            type="text"
-                            name="domain"
-                            placeholder="Deep Learning"
-                            value={paperForm.domain}
-                            onChange={handleInputChange}
-                            className={`w-full px-4 py-2.5 rounded-xl text-sm border focus:outline-none focus:border-pastel-pink/50 ${
-                              isDark ? 'bg-gray-800/50 border-pastel-darkBorder text-gray-200' : 'bg-gray-55 border-gray-100'
-                            }`}
-                          />
-                        </div>
-                      </div>
-
+                      {/* STEP 1: Upload First */}
                       <div>
-                        <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">Keywords</label>
-                        <input
-                          type="text"
-                          name="keywords"
-                          placeholder="e.g. NLP, AI, Neural Network"
-                          value={paperForm.keywords}
-                          onChange={handleInputChange}
-                          className={`w-full px-4 py-2.5 rounded-xl text-sm border focus:outline-none focus:border-pastel-pink/50 ${
-                            isDark ? 'bg-gray-800/50 border-pastel-darkBorder text-gray-200' : 'bg-gray-55 border-gray-100'
-                          }`}
-                        />
-                      </div>
+                        <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">
+                          Upload Research PDF
+                        </label>
 
-                      <div>
-                        <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">Abstract</label>
-                        <textarea
-                          rows="3"
-                          name="abstract"
-                          placeholder="Brief abstract..."
-                          value={paperForm.abstract}
-                          onChange={handleInputChange}
-                          className={`w-full px-4 py-2.5 rounded-xl text-sm border focus:outline-none focus:border-pastel-pink/50 resize-none ${
-                            isDark ? 'bg-gray-800/50 border-pastel-darkBorder text-gray-200' : 'bg-gray-55 border-gray-100'
-                          }`}
-                        />
-                      </div>
-
-                      {/* PDF Upload UI */}
-                      <div>
-                        <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Upload Research PDF</label>
                         <div className={`border-2 border-dashed rounded-2xl p-4 text-center cursor-pointer transition-colors ${
                           isDark 
                             ? 'border-pastel-darkBorder hover:border-pastel-pink/40 hover:bg-gray-800/20' 
                             : 'border-gray-200 hover:border-pastel-pink/50 hover:bg-gray-55'
                         }`}>
+
                           <input
                             type="file"
                             accept=".pdf"
@@ -470,32 +435,189 @@ export default function Dashboard() {
                             className="hidden"
                             id="pdf-upload-file"
                           />
+
                           <label htmlFor="pdf-upload-file" className="cursor-pointer flex flex-col items-center">
                             <Upload className="w-8 h-8 text-gray-300 mb-2" />
+
                             {selectedFile ? (
-                              <span className="text-xs font-semibold text-pastel-accent truncate max-w-xs">{selectedFile.name}</span>
+                              <span className="text-xs font-semibold text-pastel-accent truncate max-w-xs">
+                                {selectedFile.name}
+                              </span>
                             ) : (
                               <>
-                                <span className="text-xs font-semibold">Click to upload PDF paper</span>
-                                <span className="text-[10px] text-gray-400 mt-1">Maximum size 10MB</span>
+                                <span className="text-xs font-semibold">
+                                  Step 1: Click to upload PDF
+                                </span>
+                                <span className="text-[10px] text-gray-400 mt-1">
+                                  Metadata will be auto-extracted
+                                </span>
                               </>
                             )}
                           </label>
                         </div>
                       </div>
 
+                      {/* STEP 2: Show AI Status (keeps your UX) */}
+                      {extractingMetadata && (
+                        <div className="space-y-3 p-4 rounded-xl bg-blue-50 border border-blue-200">
+
+                          {/* Top Status Text */}
+                          <div className="flex items-center space-x-2 text-blue-700 text-sm font-semibold">
+                            <AlertCircle className="w-4 h-4 animate-pulse" />
+                            <span>{loadingMessage}</span>
+                          </div>
+
+                          {/* STEP PROGRESS BAR */}
+                          <div className="relative w-full h-2 bg-blue-100 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-pastel-accent transition-all duration-300 ease-out"
+                              style={{ width: `${loadingProgress}%` }}
+                            />
+                          </div>
+
+                          {/* STEP LABELS */}
+                          <div className="flex justify-between text-[10px] font-semibold text-blue-600 mt-2">
+
+                            <span className={loadingProgress > 10 ? "text-blue-700" : "text-blue-300"}>
+                              Upload
+                            </span>
+
+                            <span className={loadingProgress > 35 ? "text-blue-700" : "text-blue-300"}>
+                              Reading
+                            </span>
+
+                            <span className={loadingProgress > 65 ? "text-blue-700" : "text-blue-300"}>
+                              Extracting
+                            </span>
+
+                            <span className={loadingProgress > 90 ? "text-blue-700" : "text-blue-300"}>
+                              Finalizing
+                            </span>
+
+                          </div>
+                        </div>
+                      )}
+
+                      {metadataError && (
+                        <div className="flex items-center space-x-2 p-3 rounded-xl bg-red-50 text-red-700 text-sm font-semibold border border-red-200">
+                          <AlertCircle className="w-4 h-4" />
+                          <span>{metadataError}</span>
+                        </div>
+                      )}
+
+                      {/* STEP 3: FORM FIELDS (only show AFTER file selected) */}
+                      {selectedFile && (
+                        <div className="space-y-4 animate-fade-in">
+                          <div>
+                            <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">
+                              Paper Title
+                            </label>
+                            <input
+                              required
+                              type="text"
+                              name="title"
+                              value={paperForm.title}
+                              onChange={handleInputChange}
+                              className={`w-full px-4 py-2.5 rounded-xl text-sm border focus:outline-none ${
+                                isDark 
+                                  ? 'bg-gray-800/50 border-pastel-darkBorder text-gray-200' 
+                                  : 'bg-gray-55 border-gray-100'
+                              }`}
+                            />
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-4">
+                            <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">
+                              Author(s)
+                            </label>
+                            
+                            <input
+                              required
+                              type="text"
+                              name="author"
+                              placeholder="Author"
+                              value={paperForm.author}
+                              onChange={handleInputChange}
+                              className={`w-full px-4 py-2.5 rounded-xl text-sm border focus:outline-none ${
+                                isDark 
+                                  ? 'bg-gray-800/50 border-pastel-darkBorder text-gray-200' 
+                                  : 'bg-gray-55 border-gray-100'
+                              }`}
+                            />
+
+                            <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">
+                              Domain
+                            </label>
+
+                            <input
+                              required
+                              type="text"
+                              name="domain"
+                              placeholder="Domain"
+                              value={paperForm.domain}
+                              onChange={handleInputChange}
+                              className={`w-full px-4 py-2.5 rounded-xl text-sm border ${
+                                isDark 
+                                  ? 'bg-gray-800/50 border-pastel-darkBorder text-gray-200' 
+                                  : 'bg-gray-55 border-gray-100'
+                              }`}
+                            />
+                          </div>
+
+                          <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">
+                            Keywords
+                          </label>
+
+                          <input
+                            type="text"
+                            name="keywords"
+                            placeholder="Keywords"
+                            value={paperForm.keywords}
+                            onChange={handleInputChange}
+                            className={`w-full px-4 py-2.5 rounded-xl text-sm border ${
+                              isDark 
+                                ? 'bg-gray-800/50 border-pastel-darkBorder text-gray-200' 
+                                : 'bg-gray-55 border-gray-100'
+                            }`}
+                          />
+
+                            <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">
+                              Abstract
+                            </label>
+                          <textarea
+                            rows="3"
+                            name="abstract"
+                            placeholder="Abstract"
+                            value={paperForm.abstract}
+                            onChange={handleInputChange}
+                            className={`w-full px-4 py-2.5 rounded-xl text-sm border resize-none ${
+                              isDark 
+                                ? 'bg-gray-800/50 border-pastel-darkBorder text-gray-200' 
+                                : 'bg-gray-55 border-gray-100'
+                            }`}
+                          />
+
+                        </div>
+                      )}
+
+                      {/* STEP 4: SUBMIT BUTTON (ONLY ENABLE AFTER FILE) */}
                       <button
                         type="submit"
-                        disabled={extractingMetadata}
-                        className="w-full py-3 bg-pastel-accent hover:bg-pastel-accent/90 text-white font-bold rounded-2xl transition-all shadow-sm hover-scale flex items-center justify-center space-x-2"
+                        disabled={!selectedFile || extractingMetadata}
+                        className={`w-full py-3 font-bold rounded-2xl transition-all shadow-sm flex items-center justify-center space-x-2 ${
+                          !selectedFile || extractingMetadata
+                            ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                            : 'bg-pastel-accent hover:bg-pastel-accent/90 text-white'
+                        }`}
                       >
                         <Plus className="w-5 h-5" />
                         <span>
                           {extractingMetadata
                             ? 'Analyzing Paper...'
-                            : 'Add Paper'}
+                            : 'Submit Paper'}
                         </span>
                       </button>
+
                     </form>
                   </div>
                 </div>

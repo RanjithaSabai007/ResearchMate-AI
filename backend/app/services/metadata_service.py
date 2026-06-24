@@ -26,7 +26,7 @@ Return ONLY valid JSON.
 
 Paper:
 
-{text[:12000]}
+{text[:3000]}
 """
 
     response = ollama.chat(
