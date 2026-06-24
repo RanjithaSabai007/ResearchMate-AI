@@ -4,7 +4,7 @@ import Sidebar from '../components/Sidebar';
 import Topbar from '../components/Topbar';
 import api from '../utils/api';
 import { 
-  Plus, 
+  Plus,
   FileText, 
   Users, 
   Clock, 
@@ -48,6 +48,11 @@ export default function Dashboard() {
   });
   const [selectedFile, setSelectedFile] = useState(null);
   const [extractingMetadata, setExtractingMetadata] = useState(false);
+  const [showMetadataForm, setShowMetadataForm] = useState(false);
+  const [loadingProgress, setLoadingProgress] = useState(0);
+  const [loadingMessage, setLoadingMessage] = useState(
+    "Preparing document..."
+  );
   const [metadataError, setMetadataError] = useState('');
 
   const fetchPapers = async () => {
@@ -151,6 +156,20 @@ export default function Dashboard() {
   setSelectedFile(file);
   setMetadataError('');
   setExtractingMetadata(true);
+  setShowMetadataForm(false);
+  setLoadingProgress(0);
+
+  const progressInterval = setInterval(() => {
+
+  setLoadingProgress(prev => {
+
+    if (prev >= 95) return prev;
+
+    return prev + Math.floor(Math.random() * 8);
+
+  });
+
+}, 500);
 
   try {
     const formData = new FormData();

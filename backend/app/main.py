@@ -6,7 +6,6 @@ from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 from app.ai import router as ai_router
 import json
-from uuid import UUID
 
 from authlib.integrations.starlette_client import OAuth
 from starlette.config import Config
@@ -660,7 +659,7 @@ async def create_paper(
 
 @app.get("/api/papers/{paper_id}/file", tags=["Research Papers"])
 def get_paper_file(
-    paper_id: UUID,
+    paper_id: int,
     current_session: models.Session = Depends(get_current_session),
     db: Session = Depends(get_db)
 ):
@@ -699,7 +698,7 @@ def get_paper_file(
 
 @app.delete("/api/papers/{paper_id}", response_model=schemas.ApiResponse[dict], tags=["Research Papers"])
 def delete_paper(
-    paper_id: UUID,
+    paper_id: int,
     current_session: models.Session = Depends(get_current_session),
     db: Session = Depends(get_db)
 ):

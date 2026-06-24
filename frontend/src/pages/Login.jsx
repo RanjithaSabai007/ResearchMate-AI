@@ -1,6 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Key, User, Shield, AlertCircle, FileText, Database, ShieldAlert, Sparkles, BookOpen } from 'lucide-react';
+import {
+  Key,
+  User,
+  Shield,
+  AlertCircle,
+  FileText,
+  Database,
+  ShieldAlert,
+  Sparkles,
+  BookOpen,
+  Eye,
+  EyeOff
+} from 'lucide-react';
 import api from '../utils/api';
 import logo from '../assets/Logo.PNG';
 
@@ -10,6 +22,7 @@ export default function Login() {
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -291,13 +304,25 @@ export default function Login() {
                 <Key className="absolute left-4 top-3.5 w-5 h-5 text-gray-300" />
                 <input
                   required
-                  type="password"
+                  type={showPassword ? "text" : "password"}
                   name="password"
                   placeholder="••••••••"
                   value={formData.password}
                   onChange={handleChange}
-                  className="w-full pl-12 pr-4 py-3.5 bg-gray-50 border border-gray-100 rounded-2xl text-gray-700 placeholder-gray-400 focus:outline-none focus:border-pastel-pink/50 focus:bg-white transition-all font-semibold text-sm"
+                  className="w-full pl-12 pr-12 py-3.5 bg-gray-50 border border-gray-100 rounded-2xl text-gray-700 placeholder-gray-400 focus:outline-none focus:border-pastel-pink/50 focus:bg-white transition-all font-semibold text-sm"
                 />
+
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-4 top-3.5 text-gray-400 hover:text-gray-600"
+                >
+                  {showPassword ? (
+                    <EyeOff className="w-5 h-5" />
+                  ) : (
+                    <Eye className="w-5 h-5" />
+                  )}
+                </button>
               </div>
             </div>
 

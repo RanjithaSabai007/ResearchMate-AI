@@ -1,7 +1,6 @@
 from sqlalchemy.orm import Session
 from app import models, schemas, auth
 import json
-from uuid import UUID
 
 def get_user_by_username(db: Session, username: str):
     # SQLAlchemy EncryptedString automatically encrypts the query parameter,
@@ -50,7 +49,14 @@ def deactivate_session(db: Session, token: str):
         )
     return db_session
 
-def create_audit_log(db: Session, action: str, user_id: UUID = None, session_id: UUID = None, ip_address: str = None, details: str = None):
+def create_audit_log(
+    db: Session,
+    action: str,
+    user_id: int = None,
+    session_id: int = None,
+    ip_address: str = None,
+    details: str = None
+):
     db_log = models.AuditLog(
         user_id=user_id,
         session_id=session_id,
@@ -63,13 +69,36 @@ def create_audit_log(db: Session, action: str, user_id: UUID = None, session_id:
     db.refresh(db_log)
     return db_log
 
-def get_audit_logs(db: Session, user_id: UUID):
-    return db.query(models.AuditLog).filter(models.AuditLog.user_id == user_id).order_by(models.AuditLog.created_at.desc()).all()
 
-def get_user_papers(db: Session, user_id: UUID):
-    return db.query(models.Paper).filter(models.Paper.user_id == user_id).order_by(models.Paper.created_at.desc()).all()
+def get_audit_logs(db: Session, user_id: int):
+    return (
+        db.query(models.AuditLog)
+        .filter(models.AuditLog.user_id == user_id)
+        .order_by(models.AuditLog.created_at.desc())
+        .all()
+    )
 
-def create_user_paper(db: Session, title: str, author: str, domain: str, keywords: str, abstract: str, file_name: str, file_data: bytes, user_id: UUID):
+
+def get_user_papers(db: Session, user_id: int):
+    return (
+        db.query(models.Paper)
+        .filter(models.Paper.user_id == user_id)
+        .order_by(models.Paper.created_at.desc())
+        .all()
+    )
+
+
+def create_user_paper(
+    db: Session,
+    title: str,
+    author: str,
+    domain: str,
+    keywords: str,
+    abstract: str,
+    file_name: str,
+    file_data: bytes,
+    user_id: int
+):
     db_paper = models.Paper(
         user_id=user_id,
         title=title,
@@ -80,17 +109,33 @@ def create_user_paper(db: Session, title: str, author: str, domain: str, keyword
         file_name=file_name,
         file_data=file_data
     )
+
     db.add(db_paper)
     db.commit()
     db.refresh(db_paper)
+
     return db_paper
 
-def delete_user_paper(db: Session, paper_id: UUID, user_id: UUID):
-    db_paper = db.query(models.Paper).filter(models.Paper.id == paper_id, models.Paper.user_id == user_id).first()
+
+def delete_user_paper(
+    db: Session,
+    paper_id: int,
+    user_id: int
+):
+    db_paper = (
+        db.query(models.Paper)
+        .filter(
+            models.Paper.id == paper_id,
+            models.Paper.user_id == user_id
+        )
+        .first()
+    )
+
     if db_paper:
         db.delete(db_paper)
         db.commit()
         return True
+
     return False
 
 def get_user_by_google_id(
