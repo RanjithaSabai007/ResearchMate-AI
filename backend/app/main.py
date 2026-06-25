@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from app.ai import router as ai_router
 import json
 
+from app import ai
 from authlib.integrations.starlette_client import OAuth
 from starlette.config import Config
 from starlette.middleware.sessions import SessionMiddleware
@@ -22,7 +23,6 @@ from app.config import (
     JWT_SECRET
 )
 
-
 from app import models, schemas, crud, auth
 from app.database import engine, get_db
 
@@ -34,7 +34,7 @@ app = FastAPI(
     description="Secure research management backend",
     version="1.0.0"
 )
-
+app.include_router(ai.router)
 app.include_router(ai_router)
 
 config_data = {

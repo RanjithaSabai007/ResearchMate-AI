@@ -27,6 +27,7 @@ export default function Dashboard() {
 
   // Dashboard state
   const [papers, setPapers] = useState([]);
+  const [paperText, setPaperText] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [sessionsCount, setSessionsCount] = useState(1);
   const [auditLogs, setAuditLogs] = useState([]);
@@ -56,6 +57,9 @@ export default function Dashboard() {
     "Preparing document..."
   );
   const [metadataError, setMetadataError] = useState('');
+  const [question, setQuestion] = useState('');
+  const [chatResponse, setChatResponse] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
 
   const fetchPapers = async () => {
     try {
@@ -244,9 +248,13 @@ export default function Dashboard() {
 
     const metadata = response.data.metadata || {};
     const summary = response.data.summary || "";
+    
+    let paperTextResponse = response.data.paper_text;
+    let paperText = response.data.paper_text;
+    setPaperText(paperText);
 
-    console.log("METADATA:", metadata);
-    console.log("SUMMARY:", summary);
+    console.log("PAPER TEXT RECEIVED:");
+    console.log(paperText);
 
     if (typeof metadata === 'string') {
       metadata = JSON.parse(metadata);
@@ -322,7 +330,42 @@ export default function Dashboard() {
       console.error("Failed to add paper:", err);
     }
   };
+  const handleAskQuestion = async () => {
 
+    if (!question.trim()) return;
+
+    try {
+
+      setChatLoading(true);
+
+      const response = await api.post(
+        '/api/ai/chat-paper',
+        {
+          paper_text: paperText,
+          question: question
+        }
+      );
+
+      console.log("FULL CHAT RESPONSE:");
+      console.log(response);
+
+      console.log("FULL CHAT RESPONSE DATA:");
+      console.log(response.data);
+
+      setChatResponse(
+        response.data.answer
+      );
+
+    } catch (err) {
+
+      console.error(err);
+
+    } finally {
+
+      setChatLoading(false);
+
+    }
+  };
   const handleDeletePaper = async (id) => {
     try {
       await api.delete(`/api/papers/${id}`);
@@ -660,6 +703,43 @@ export default function Dashboard() {
                           </div>
                         </div>
                       )}
+
+                      <div className="mt-6 border rounded-xl p-4">
+                        <h3 className="font-bold text-lg mb-3">
+                          Research Paper Chat
+                        </h3>
+
+                        <textarea
+                          value={question}
+                          onChange={(e) =>
+                            setQuestion(e.target.value)
+                          }
+                          placeholder="Ask something about this paper..."
+                          className="w-full border rounded-lg p-3"
+                          rows={3}
+                        />
+
+                        <button
+                          onClick={handleAskQuestion}
+                          disabled={chatLoading}
+                          className="mt-3 px-4 py-2 bg-indigo-600 text-white rounded-lg"
+                        >
+                          {chatLoading
+                            ? 'Thinking...'
+                            : 'Ask AI'}
+                        </button>
+
+                        {chatResponse && (
+                          <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+                            <strong>Answer:</strong>
+
+                            <p className="mt-2 whitespace-pre-wrap">
+                              {chatResponse}
+                            </p>
+                          </div>
+                        )}
+
+                      </div>
 
                       {/* STEP 4: SUBMIT BUTTON (ONLY ENABLE AFTER FILE) */}
                       <button

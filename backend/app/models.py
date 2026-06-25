@@ -156,6 +156,7 @@ class Paper(Base):
     file_name = Column(String, nullable=True)
     file_data = Column(LargeBinary, nullable=True)
     summary = Column(Text, nullable=True)
+    paper_text = Column(Text, nullable=True)
     created_at = Column(
         DateTime,
         default=lambda: datetime.now(timezone.utc)
