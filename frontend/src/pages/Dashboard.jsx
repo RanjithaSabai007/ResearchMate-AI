@@ -268,6 +268,8 @@ export default function Dashboard() {
       formData.append('domain', paperForm.domain);
       if (paperForm.keywords) formData.append('keywords', paperForm.keywords);
       if (paperForm.abstract) formData.append('abstract', paperForm.abstract);
+      if (paperForm.summary)
+         formData.append('summary', paperForm.summary);
       if (selectedFile) {
         formData.append('file', selectedFile);
       }
@@ -715,6 +717,24 @@ export default function Dashboard() {
                                 {paper.abstract}
                               </p>
                             )}
+
+                            {paper.summary && (
+                              <div
+                                className={`mt-3 p-3 rounded-xl border ${
+                                  isDark
+                                    ? 'bg-slate-900/40 border-pastel-darkBorder'
+                                    : 'bg-gradient-to-r from-pink-50/50 to-blue-50/50 border-pastel-pink/20'
+                                }`}
+                              >
+                                <p className="text-[10px] font-bold uppercase tracking-wider text-pastel-accent mb-2">
+                                  AI Generated Summary
+                                </p>
+
+                                <p className="text-xs leading-relaxed text-gray-500 dark:text-gray-400 line-clamp-4">
+                                  {paper.summary}
+                                </p>
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -919,6 +939,26 @@ export default function Dashboard() {
                     <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed font-medium">
                       {selectedPaper.abstract}
                     </p>
+                  </div>
+                )}
+
+                {selectedPaper.summary && (
+                  <div>
+                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1.5">
+                      AI Generated Summary
+                    </h4>
+
+                    <div
+                      className={`p-3 rounded-xl ${
+                        isDark
+                          ? 'bg-slate-900/50 border border-pastel-darkBorder'
+                          : 'bg-gradient-to-r from-pink-50/50 to-blue-50/50 border border-pastel-pink/20'
+                      }`}
+                    >
+                      <p className="text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+                        {selectedPaper.summary}
+                      </p>
+                    </div>
                   </div>
                 )}
 

@@ -76,14 +76,20 @@ class PaperBase(BaseModel):
     abstract: Optional[str] = None
 
 
-class PaperCreate(PaperBase):
-    pass
+class PaperCreate(BaseModel):
+    title: str
+    author: str
+    domain: str
+    keywords: str | None = None
+    abstract: str | None = None
+    summary: str | None = None
 
 
 class PaperResponse(PaperBase):
     id: int
     user_id: int
     file_name: Optional[str] = None
+    summary: str | None = None
     created_at: datetime
 
     class Config:

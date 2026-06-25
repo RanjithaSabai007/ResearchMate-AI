@@ -95,6 +95,7 @@ def create_user_paper(
     domain: str,
     keywords: str,
     abstract: str,
+    summary: str,
     file_name: str,
     file_data: bytes,
     user_id: int
@@ -106,8 +107,9 @@ def create_user_paper(
         domain=domain,
         keywords=keywords,
         abstract=abstract,
+        summary=summary,
         file_name=file_name,
-        file_data=file_data
+        file_data=file_data,
     )
 
     db.add(db_paper)

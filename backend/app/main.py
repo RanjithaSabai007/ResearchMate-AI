@@ -620,6 +620,7 @@ async def create_paper(
     domain: str = Form(...),
     keywords: str = Form(None),
     abstract: str = Form(None),
+    summary: str = Form(None),
     file: UploadFile = File(None),
     current_session: models.Session = Depends(get_current_session),
     db: Session = Depends(get_db)
@@ -646,6 +647,7 @@ async def create_paper(
         domain=domain,
         keywords=keywords,
         abstract=abstract,
+        summary=summary,
         file_name=file_name,
         file_data=file_data,
         user_id=current_session.user_id
