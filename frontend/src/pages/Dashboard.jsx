@@ -229,6 +229,19 @@ export default function Dashboard() {
 
     console.log("FULL RESPONSE:", response.data);
 
+    if (response.data.success === false) {
+
+        setMetadataError(
+            response.data.message
+        );
+
+        setExtractingMetadata(false);
+
+        return;
+    }
+
+    console.log("FULL RESPONSE:", response.data);
+
     const metadata = response.data.metadata || {};
     const summary = response.data.summary || "";
 
@@ -254,12 +267,16 @@ export default function Dashboard() {
     });
 
   } catch (error) {
-    console.error('Metadata extraction failed:', error);
+        console.error(
+            'Metadata extraction failed:',
+            error
+        );
 
-    setMetadataError(
-      'AI could not extract metadata from this PDF.'
-    );
-  } finally {
+        setMetadataError(
+            error?.response?.data?.message ||
+            'Metadata extraction failed.'
+        );
+    } finally {
       clearInterval(progressInterval);
       setLoadingProgress(100);
 
@@ -457,7 +474,7 @@ export default function Dashboard() {
 
                           <input
                             type="file"
-                            accept=".pdf"
+                            accept=".pdf,application/pdf"
                             onChange={handleFileChange}
                             className="hidden"
                             id="pdf-upload-file"
