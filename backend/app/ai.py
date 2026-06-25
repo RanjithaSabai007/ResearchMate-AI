@@ -1,7 +1,7 @@
 from fastapi import APIRouter, UploadFile, File
-
 from app.services.pdf_service import extract_first_pages_text
 from app.services.metadata_service import extract_metadata
+from app.services.summary_services import generate_summary
 
 router = APIRouter(
     prefix="/api/ai",
@@ -22,9 +22,14 @@ async def extract_pdf_metadata(
         extracted_text
     )
 
+    summary = generate_summary(
+        extracted_text
+    )
+
     return {
         "success": True,
         "data": {
-            "metadata": metadata
+            "metadata": metadata,
+            "summary": summary
         }
     }

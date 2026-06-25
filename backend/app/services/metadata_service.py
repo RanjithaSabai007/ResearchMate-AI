@@ -1,8 +1,11 @@
 import json
 import ollama
-
+import time
 
 def extract_metadata(text):
+
+    start = time.time()
+
     prompt = f"""
 You are an academic research assistant.
 
@@ -26,11 +29,15 @@ Return ONLY valid JSON.
 
 Paper:
 
-{text[:3000]}
+{text[:2500]}
 """
 
+    print("Sending to phi3:mini...")
+
+    ai_start = time.time()
+
     response = ollama.chat(
-        model="mistral",
+        model="phi3:mini",
         messages=[
             {
                 "role": "user",
@@ -39,11 +46,22 @@ Paper:
         ]
     )
 
+    print("AI Time:", time.time() - ai_start)
+
     result = response["message"]["content"]
+
+    print("TOTAL:", time.time() - start)
 
     try:
         return json.loads(result)
-    except:
+
+    except Exception as e:
+        print("\nJSON ERROR:")
+        print(e)
+
+        print("\nRAW RESPONSE:")
+        print(result)
+
         return {
             "title": "",
             "author": [],
@@ -51,11 +69,3 @@ Paper:
             "keywords": [],
             "abstract": ""
         }
-
-    result = response["message"]["content"]
-
-    print("\n===== MISTRAL RAW RESPONSE =====")
-    print(result)
-    print("================================\n")
-
-    return result

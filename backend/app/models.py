@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from sqlalchemy import (
     Column,
     String,
+    Text, #summary = Column(Text, nullable=True)
     DateTime,
     Boolean,
     ForeignKey,
@@ -154,7 +155,7 @@ class Paper(Base):
 
     file_name = Column(String, nullable=True)
     file_data = Column(LargeBinary, nullable=True)
-
+    summary = Column(Text, nullable=True)
     created_at = Column(
         DateTime,
         default=lambda: datetime.now(timezone.utc)

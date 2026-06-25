@@ -44,7 +44,8 @@ export default function Dashboard() {
     author: '',
     domain: '',
     keywords: '',
-    abstract: ''
+    abstract: '',
+    summary: ''
   });
   const [selectedFile, setSelectedFile] = useState(null);
   const [extractingMetadata, setExtractingMetadata] = useState(false);
@@ -156,7 +157,7 @@ export default function Dashboard() {
   setSelectedFile(file);
   setMetadataError('');
   setExtractingMetadata(true);
-  setShowMetadataForm(false);
+  setShowMetadataForm(true);
   setLoadingProgress(0);
   setLoadingMessage("Uploading PDF...");
 
@@ -212,12 +213,19 @@ export default function Dashboard() {
       }
     );
 
-    let metadata = response.data.metadata;
+    console.log("FULL RESPONSE:", response.data);
+
+    const metadata = response.data.metadata || {};
+    const summary = response.data.summary || "";
+
+    console.log("METADATA:", metadata);
+    console.log("SUMMARY:", summary);
 
     if (typeof metadata === 'string') {
       metadata = JSON.parse(metadata);
     }
 
+    console.log("SETTING FORM NOW");
     setPaperForm({
       title: metadata.title || '',
       author: Array.isArray(metadata.author)
@@ -227,7 +235,8 @@ export default function Dashboard() {
       keywords: Array.isArray(metadata.keywords)
         ? metadata.keywords.join(', ')
         : metadata.keywords || '',
-      abstract: metadata.abstract || ''
+      abstract: metadata.abstract || '',
+      summary: summary || ''
     });
 
   } catch (error) {
@@ -269,8 +278,10 @@ export default function Dashboard() {
         }
       });
 
+      console.log(response.data);
+
       setPapers([response.data, ...papers]);
-      setPaperForm({ title: '', author: '', domain: '', keywords: '', abstract: '' });
+      setPaperForm({ title: '', author: '', domain: '', keywords: '', abstract: '', summary: '' });
       setSelectedFile(null);
       setUploadSuccess(true);
       setTimeout(() => setUploadSuccess(false), 4000);
@@ -597,6 +608,23 @@ export default function Dashboard() {
                             }`}
                           />
 
+                          <div>
+                            <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">
+                              AI Generated Summary
+                            </label>
+
+                            <textarea
+                              rows="6"
+                              name="summary"
+                              value={paperForm.summary}
+                              readOnly
+                              className={`w-full px-4 py-2.5 rounded-xl text-sm border resize-none ${
+                                isDark
+                                  ? 'bg-gray-800/50 border-pastel-darkBorder text-gray-200'
+                                  : 'bg-gray-50 border-gray-100'
+                              }`}
+                            />
+                          </div>
                         </div>
                       )}
 
