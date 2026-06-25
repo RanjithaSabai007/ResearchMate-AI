@@ -27,6 +27,7 @@ export default function Dashboard() {
 
   // Dashboard state
   const [papers, setPapers] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
   const [sessionsCount, setSessionsCount] = useState(1);
   const [auditLogs, setAuditLogs] = useState([]);
   const [activeSessions, setActiveSessions] = useState([]);
@@ -64,6 +65,19 @@ export default function Dashboard() {
       console.error("Failed to load papers:", err);
     }
   };
+
+  const filteredPapers = papers.filter((paper) => {
+    const search = searchTerm.toLowerCase();
+
+    return (
+      paper.title?.toLowerCase().includes(search) ||
+      paper.author?.toLowerCase().includes(search) ||
+      paper.domain?.toLowerCase().includes(search) ||
+      paper.keywords?.toLowerCase().includes(search) ||
+      paper.abstract?.toLowerCase().includes(search) ||
+      paper.summary?.toLowerCase().includes(search)
+    );
+  });
 
   const fetchActiveSessions = async () => {
     try {
@@ -660,6 +674,23 @@ export default function Dashboard() {
                       <span>Stored Papers</span>
                     </h2>
 
+                    <div className="mb-4">
+                      <input
+                        type="text"
+                        placeholder="Search papers by title, author, domain, keywords..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className={`w-full px-4 py-3 rounded-xl border ${
+                          isDark
+                            ? 'bg-slate-800 border-slate-700 text-white'
+                            : 'bg-white border-gray-300 text-gray-900'
+                        }`}
+                      />
+                    </div>
+                    <p className="text-sm text-gray-500 mb-3">
+                      Showing {filteredPapers.length} paper(s)
+                    </p>
+
                     {papers.length === 0 ? (
                       <div className="p-8 text-center text-gray-400">
                         <FileText className="w-12 h-12 mx-auto mb-3 opacity-35" />
@@ -667,7 +698,7 @@ export default function Dashboard() {
                       </div>
                     ) : (
                       <div className="space-y-4">
-                        {papers.map((paper) => (
+                        {filteredPapers.map((paper) => (
                           <div 
                             key={paper.id} 
                             onClick={() => handleSelectPaper(paper)}
