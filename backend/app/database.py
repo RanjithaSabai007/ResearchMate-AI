@@ -55,6 +55,7 @@ from sqlalchemy import text
 def run_migrations():
     try:
         with engine.connect() as conn:
+            # 1. Migrate users (reset_otp)
             res = conn.execute(text(
                 "SELECT column_name FROM information_schema.columns "
                 "WHERE table_name='users' AND column_name='reset_otp';"
@@ -65,9 +66,36 @@ def run_migrations():
                 conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_otp VARCHAR;"))
                 conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_otp_expires_at TIMESTAMP;"))
                 conn.commit()
-                print("Database migration completed successfully.")
-            else:
-                print("Database columns reset_otp and reset_otp_expires_at already exist.")
+                print("Users table migration completed successfully.")
+            
+            # 2. Ensure projects table exists
+            print("Ensuring projects table exists...")
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS projects (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    title VARCHAR NOT NULL,
+                    description VARCHAR,
+                    draft_title VARCHAR DEFAULT 'Untitled Draft',
+                    draft_content TEXT DEFAULT '',
+                    created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT (NOW() AT TIME ZONE 'UTC'),
+                    updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT (NOW() AT TIME ZONE 'UTC')
+                );
+            """))
+            conn.commit()
+            print("Projects table check/creation completed.")
+
+            # 3. Migrate papers (add project_id references projects(id))
+            res = conn.execute(text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name='papers' AND column_name='project_id';"
+            ))
+            row = res.fetchone()
+            if not row:
+                print("Running database migration: adding project_id column to papers table...")
+                conn.execute(text("ALTER TABLE papers ADD COLUMN IF NOT EXISTS project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE;"))
+                conn.commit()
+                print("Papers table migration completed successfully.")
     except Exception as e:
         print(f"Database auto-migration warning: {e}")
 

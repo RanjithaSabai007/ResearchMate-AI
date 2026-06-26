@@ -83,17 +83,57 @@ class PaperCreate(BaseModel):
     keywords: str | None = None
     abstract: str | None = None
     summary: str | None = None
+    paper_text: str | None = None
 
 
 class PaperResponse(PaperBase):
     id: int
     user_id: int
+    project_id: Optional[int] = None
     file_name: Optional[str] = None
     summary: str | None = None
+    paper_text: str | None = None
     created_at: datetime
 
     class Config:
         from_attributes = True
+
+
+class ProjectBase(BaseModel):
+    title: str
+    description: Optional[str] = None
+
+
+class ProjectCreate(ProjectBase):
+    pass
+
+
+class ProjectUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    draft_title: Optional[str] = None
+    draft_content: Optional[str] = None
+
+
+class ProjectResponse(ProjectBase):
+    id: int
+    user_id: int
+    draft_title: str
+    draft_content: str
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ProjectDetailResponse(ProjectResponse):
+    papers: List[PaperResponse] = []
+
+
+class DraftUpdateRequest(BaseModel):
+    draft_title: str
+    draft_content: str
 
 
 T = TypeVar("T")

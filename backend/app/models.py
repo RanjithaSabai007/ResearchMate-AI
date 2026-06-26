@@ -53,6 +53,13 @@ class User(Base):
         cascade="all, delete-orphan"
     )
 
+    projects = relationship(
+        "Project",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
+
+
 
 class Session(Base):
     __tablename__ = "sessions"
@@ -135,6 +142,45 @@ class AuditLog(Base):
     )
 
 
+class Project(Base):
+    __tablename__ = "projects"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False
+    )
+
+    title = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+
+    draft_title = Column(String, default="Untitled Draft", nullable=False)
+    draft_content = Column(Text, default="", nullable=False)
+
+    created_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc)
+    )
+
+    user = relationship(
+        "User",
+        back_populates="projects"
+    )
+
+    papers = relationship(
+        "Paper",
+        back_populates="project",
+        cascade="all, delete-orphan"
+    )
+
+
 class Paper(Base):
     __tablename__ = "papers"
 
@@ -144,6 +190,12 @@ class Paper(Base):
         Integer,
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False
+    )
+
+    project_id = Column(
+        Integer,
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=True
     )
 
     title = Column(String, nullable=False)
@@ -166,3 +218,8 @@ class Paper(Base):
         "User",
         back_populates="papers"
     )
+
+    project = relationship(
+        "Project",
+        back_populates="papers"
+    )

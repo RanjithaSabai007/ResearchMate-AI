@@ -603,12 +603,13 @@ async def github_callback(request: Request, db: Session = Depends(get_db)):
 
 @app.get("/api/papers", response_model=schemas.ApiResponse[list[schemas.PaperResponse]], tags=["Research Papers"])
 def get_papers(
+    project_id: int = None,
     current_session: models.Session = Depends(get_current_session),
     db: Session = Depends(get_db)
 ):
     return {
         "success": True,
-        "data": crud.get_user_papers(db, current_session.user_id),
+        "data": crud.get_user_papers(db, current_session.user_id, project_id=project_id),
         "error_code": None,
         "message": "Papers retrieved successfully."
     }
@@ -622,6 +623,8 @@ async def create_paper(
     abstract: str = Form(None),
     summary: str = Form(None),
     file: UploadFile = File(None),
+    paper_text: str = Form(None),
+    project_id: int = Form(None),
     current_session: models.Session = Depends(get_current_session),
     db: Session = Depends(get_db)
 ):
@@ -650,7 +653,9 @@ async def create_paper(
         summary=summary,
         file_name=file_name,
         file_data=file_data,
-        user_id=current_session.user_id
+        paper_text=paper_text,
+        user_id=current_session.user_id,
+        project_id=project_id
     )
     return {
         "success": True,
@@ -658,6 +663,148 @@ async def create_paper(
         "error_code": None,
         "message": "Paper created successfully."
     }
+
+# --- Project Endpoints ---
+
+@app.get("/api/projects", response_model=schemas.ApiResponse[list[schemas.ProjectResponse]], tags=["Projects"])
+def get_projects(
+    current_session: models.Session = Depends(get_current_session),
+    db: Session = Depends(get_db)
+):
+    return {
+        "success": True,
+        "data": crud.get_user_projects(db, current_session.user_id),
+        "error_code": None,
+        "message": "Projects retrieved successfully."
+    }
+
+@app.post("/api/projects", response_model=schemas.ApiResponse[schemas.ProjectResponse], status_code=status.HTTP_201_CREATED, tags=["Projects"])
+def create_project(
+    project_data: schemas.ProjectCreate,
+    current_session: models.Session = Depends(get_current_session),
+    db: Session = Depends(get_db)
+):
+    # Log audit entry
+    crud.create_audit_log(
+        db,
+        action="ADD_PROJECT",
+        user_id=current_session.user_id,
+        session_id=current_session.id,
+        details=f"Created project: {project_data.title}"
+    )
+
+    db_project = crud.create_project(db, project_data, current_session.user_id)
+    return {
+        "success": True,
+        "data": db_project,
+        "error_code": None,
+        "message": "Project created successfully."
+    }
+
+@app.get("/api/projects/{project_id}", response_model=schemas.ApiResponse[schemas.ProjectDetailResponse], tags=["Projects"])
+def get_project_details(
+    project_id: int,
+    current_session: models.Session = Depends(get_current_session),
+    db: Session = Depends(get_db)
+):
+    project = crud.get_project(db, project_id, current_session.user_id)
+    if not project:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "status_code": 404,
+                "error_code": "PROJECT_NOT_FOUND",
+                "message": "The project could not be found."
+            }
+        )
+    
+    # List papers to return in ProjectDetailResponse
+    project.papers = crud.get_user_papers(db, current_session.user_id, project_id=project_id)
+
+    return {
+        "success": True,
+        "data": project,
+        "error_code": None,
+        "message": "Project details retrieved successfully."
+    }
+
+@app.put("/api/projects/{project_id}/draft", response_model=schemas.ApiResponse[schemas.ProjectResponse], tags=["Projects"])
+def update_draft(
+    project_id: int,
+    draft_data: schemas.DraftUpdateRequest,
+    current_session: models.Session = Depends(get_current_session),
+    db: Session = Depends(get_db)
+):
+    project = crud.get_project(db, project_id, current_session.user_id)
+    if not project:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "status_code": 404,
+                "error_code": "PROJECT_NOT_FOUND",
+                "message": "The project could not be found."
+            }
+        )
+
+    # Log audit entry
+    crud.create_audit_log(
+        db,
+        action="UPDATE_PROJECT_DRAFT",
+        user_id=current_session.user_id,
+        session_id=current_session.id,
+        details=f"Updated draft in project: {project.title}"
+    )
+
+    updated_project = crud.update_project_draft(
+        db, 
+        project_id=project_id, 
+        draft_title=draft_data.draft_title, 
+        draft_content=draft_data.draft_content, 
+        user_id=current_session.user_id
+    )
+
+    return {
+        "success": True,
+        "data": updated_project,
+        "error_code": None,
+        "message": "Project draft updated successfully."
+    }
+
+@app.delete("/api/projects/{project_id}", response_model=schemas.ApiResponse[dict], tags=["Projects"])
+def delete_project(
+    project_id: int,
+    current_session: models.Session = Depends(get_current_session),
+    db: Session = Depends(get_db)
+):
+    project = crud.get_project(db, project_id, current_session.user_id)
+    if not project:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "status_code": 404,
+                "error_code": "PROJECT_NOT_FOUND",
+                "message": "The project could not be found."
+            }
+        )
+
+    # Log audit entry
+    crud.create_audit_log(
+        db,
+        action="DELETE_PROJECT",
+        user_id=current_session.user_id,
+        session_id=current_session.id,
+        details=f"Deleted project: {project.title}"
+    )
+
+    crud.delete_project(db, project_id, current_session.user_id)
+
+    return {
+        "success": True,
+        "data": {"message": "Project successfully deleted."},
+        "error_code": None,
+        "message": "Project deleted successfully."
+    }
+
 
 @app.get("/api/papers/{paper_id}/file", tags=["Research Papers"])
 def get_paper_file(

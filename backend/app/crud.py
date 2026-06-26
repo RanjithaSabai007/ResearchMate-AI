@@ -79,10 +79,60 @@ def get_audit_logs(db: Session, user_id: int):
     )
 
 
-def get_user_papers(db: Session, user_id: int):
+def get_user_projects(db: Session, user_id: int):
     return (
-        db.query(models.Paper)
-        .filter(models.Paper.user_id == user_id)
+        db.query(models.Project)
+        .filter(models.Project.user_id == user_id)
+        .order_by(models.Project.created_at.desc())
+        .all()
+    )
+
+
+def get_project(db: Session, project_id: int, user_id: int):
+    return (
+        db.query(models.Project)
+        .filter(models.Project.id == project_id, models.Project.user_id == user_id)
+        .first()
+    )
+
+
+def create_project(db: Session, project: schemas.ProjectCreate, user_id: int):
+    db_project = models.Project(
+        user_id=user_id,
+        title=project.title,
+        description=project.description
+    )
+    db.add(db_project)
+    db.commit()
+    db.refresh(db_project)
+    return db_project
+
+
+def update_project_draft(db: Session, project_id: int, draft_title: str, draft_content: str, user_id: int):
+    db_project = get_project(db, project_id, user_id)
+    if db_project:
+        db_project.draft_title = draft_title
+        db_project.draft_content = draft_content
+        db.commit()
+        db.refresh(db_project)
+    return db_project
+
+
+def delete_project(db: Session, project_id: int, user_id: int):
+    db_project = get_project(db, project_id, user_id)
+    if db_project:
+        db.delete(db_project)
+        db.commit()
+        return True
+    return False
+
+
+def get_user_papers(db: Session, user_id: int, project_id: int = None):
+    query = db.query(models.Paper).filter(models.Paper.user_id == user_id)
+    if project_id is not None:
+        query = query.filter(models.Paper.project_id == project_id)
+    return (
+        query
         .order_by(models.Paper.created_at.desc())
         .all()
     )
@@ -96,12 +146,15 @@ def create_user_paper(
     keywords: str,
     abstract: str,
     summary: str,
+    paper_text: str,
     file_name: str,
     file_data: bytes,
-    user_id: int
+    user_id: int,
+    project_id: int = None
 ):
     db_paper = models.Paper(
         user_id=user_id,
+        project_id=project_id,
         title=title,
         author=author,
         domain=domain,
@@ -110,6 +163,7 @@ def create_user_paper(
         summary=summary,
         file_name=file_name,
         file_data=file_data,
+        paper_text=paper_text
     )
 
     db.add(db_paper)
