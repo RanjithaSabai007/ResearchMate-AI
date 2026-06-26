@@ -32,7 +32,10 @@ import {
   Save,
   Loader2,
   Search,
-  Sparkles
+  Sparkles,
+  Star,
+  Check,
+  AlertTriangle
 } from 'lucide-react';
 
 export default function Dashboard() {
@@ -71,6 +74,8 @@ export default function Dashboard() {
   const [loadingMessage, setLoadingMessage] = useState("Preparing document...");
   const [metadataError, setMetadataError] = useState('');
   const [paperText, setPaperText] = useState('');
+  const [paperEvaluation, setPaperEvaluation] = useState(null); // Extracted evaluation of uploaded paper
+  const [selectedEvaluationPaper, setSelectedEvaluationPaper] = useState(null); // Paper whose evaluation is viewed in modal
   const [paperForm, setPaperForm] = useState({
     title: '',
     author: '',
@@ -84,6 +89,7 @@ export default function Dashboard() {
   const [selectedPaper, setSelectedPaper] = useState(null);
   const [pdfUrl, setPdfUrl] = useState(null);
   const [loadingPdf, setLoadingPdf] = useState(false);
+  const [activeModalTab, setActiveModalTab] = useState('summary'); // 'summary' | 'evaluation' | 'chat'
 
   // Chatbot states
   // 1. PDF Modal chatbot
@@ -253,9 +259,21 @@ export default function Dashboard() {
       
       // Select the first paper by default for the tab chat if papers exist
       if (projectDetails.papers && projectDetails.papers.length > 0) {
-        setSelectedChatPaper(projectDetails.papers[0]);
+        const firstPaper = projectDetails.papers[0];
+        setSelectedChatPaper(firstPaper);
+        // Load its chat history from DB
+        try {
+          const chatHistoryResp = await api.get(`/api/papers/${firstPaper.id}/chat`);
+          setTabChatHistory(chatHistoryResp.data.map(msg => ({
+            role: msg.role,
+            content: msg.content
+          })));
+        } catch (chatErr) {
+          console.error("Failed to load chat history:", chatErr);
+        }
       } else {
         setSelectedChatPaper(null);
+        setTabChatHistory([]);
       }
     } catch (err) {
       console.error("Failed to load project details:", err);
@@ -337,13 +355,14 @@ export default function Dashboard() {
     setExtractingMetadata(true);
     setLoadingProgress(0);
     setLoadingMessage("Uploading PDF...");
+    setPaperEvaluation(null); // Clear previous evaluation
 
     let stage = 0;
     const stages = [
       "Uploading PDF...",
       "Reading document structure...",
       "AI analyzing content...",
-      "Extracting metadata...",
+      "Extracting metadata & running evaluation...",
       "Finalizing results..."
     ];
 
@@ -375,7 +394,9 @@ export default function Dashboard() {
 
       const metadata = response.data.metadata || {};
       const summary = response.data.summary || "";
+      const evaluation = response.data.evaluation || null;
       setPaperText(response.data.paper_text || "");
+      setPaperEvaluation(evaluation);
 
       setPaperForm({
         title: metadata.title || '',
@@ -416,6 +437,9 @@ export default function Dashboard() {
       if (selectedFile) {
         formData.append('file', selectedFile);
       }
+      if (paperEvaluation) {
+        formData.append('evaluation', JSON.stringify(paperEvaluation));
+      }
 
       const response = await api.post('/api/papers', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
@@ -431,10 +455,21 @@ export default function Dashboard() {
       // Update selector dropdown if it was null
       if (!selectedChatPaper) {
         setSelectedChatPaper(newPaper);
+        // Load its chat history
+        try {
+          const chatHistoryResp = await api.get(`/api/papers/${newPaper.id}/chat`);
+          setTabChatHistory(chatHistoryResp.data.map(msg => ({
+            role: msg.role,
+            content: msg.content
+          })));
+        } catch (chatErr) {
+          console.error(chatErr);
+        }
       }
 
       setPaperForm({ title: '', author: '', domain: '', keywords: '', abstract: '', summary: '' });
       setSelectedFile(null);
+      setPaperEvaluation(null);
       setUploadSuccess(true);
       setTimeout(() => setUploadSuccess(false), 4000);
     } catch (err) {
@@ -455,8 +490,20 @@ export default function Dashboard() {
         handleCloseModal();
       }
       if (selectedChatPaper?.id === paperId) {
-        setSelectedChatPaper(updatedPapers[0] || null);
+        const nextPaper = updatedPapers[0] || null;
+        setSelectedChatPaper(nextPaper);
         setTabChatHistory([]);
+        if (nextPaper) {
+          try {
+            const chatHistoryResp = await api.get(`/api/papers/${nextPaper.id}/chat`);
+            setTabChatHistory(chatHistoryResp.data.map(msg => ({
+              role: msg.role,
+              content: msg.content
+            })));
+          } catch (chatErr) {
+            console.error(chatErr);
+          }
+        }
       }
     } catch (err) {
       console.error("Failed to delete paper:", err);
@@ -468,6 +515,19 @@ export default function Dashboard() {
     setPdfUrl(null);
     setModalChatHistory([]);
     setModalQuestion('');
+    setActiveModalTab('summary'); // Default to summary tab
+    
+    // Fetch chat history from database to sync
+    try {
+      const response = await api.get(`/api/papers/${paper.id}/chat`);
+      setModalChatHistory(response.data.map(msg => ({
+        role: msg.role,
+        content: msg.content
+      })));
+    } catch (chatErr) {
+      console.error("Failed to retrieve chat history:", chatErr);
+    }
+
     if (paper.file_name) {
       setLoadingPdf(true);
       try {
@@ -493,7 +553,7 @@ export default function Dashboard() {
     setPdfUrl(null);
   };
 
-  // --- Stored Paper Chatbots Operations ---
+  // --- Stored Paper Chatbots Operations (Database Synced) ---
 
   // 1. PDF Modal chatbot submit
   const handleModalChatSend = async (e) => {
@@ -506,8 +566,7 @@ export default function Dashboard() {
     setModalChatLoading(true);
 
     try {
-      const response = await api.post('/api/ai/chat-paper', {
-        paper_text: selectedPaper.paper_text || selectedPaper.summary || '',
+      const response = await api.post(`/api/papers/${selectedPaper.id}/chat`, {
         question: userQuestion
       });
       setModalChatHistory(prev => [...prev, { role: 'assistant', content: response.data.answer }]);
@@ -533,8 +592,7 @@ export default function Dashboard() {
     setTabChatLoading(true);
 
     try {
-      const response = await api.post('/api/ai/chat-paper', {
-        paper_text: selectedChatPaper.paper_text || selectedChatPaper.summary || '',
+      const response = await api.post(`/api/papers/${selectedChatPaper.id}/chat`, {
         question: userQuestion
       });
       setTabChatHistory(prev => [...prev, { role: 'assistant', content: response.data.answer }]);
@@ -549,10 +607,37 @@ export default function Dashboard() {
     }
   };
 
-  const handleChatPaperChange = (paperId) => {
+  const handleChatPaperChange = async (paperId) => {
     const selected = papers.find(p => p.id === parseInt(paperId));
     setSelectedChatPaper(selected);
-    setTabChatHistory([]); // Clear chat history when switching reference papers
+    setTabChatHistory([]); // Clear local state first
+    
+    if (selected) {
+      setTabChatLoading(true);
+      try {
+        const response = await api.get(`/api/papers/${selected.id}/chat`);
+        setTabChatHistory(response.data.map(msg => ({
+          role: msg.role,
+          content: msg.content
+        })));
+      } catch (err) {
+        console.error("Failed to load chat history:", err);
+      } finally {
+        setTabChatLoading(false);
+      }
+    }
+  };
+
+  // Helper to render star rating graphics based on evaluation overall score (0-100)
+  const renderStars = (score) => {
+    const starsCount = Math.round((score || 70) / 20); // 0-100 score maps to 0-5 stars
+    return (
+      <div className="flex items-center space-x-0.5 text-amber-400">
+        {[...Array(5)].map((_, i) => (
+          <Star key={i} className={`w-4 h-4 ${i < starsCount ? 'fill-current' : 'text-gray-300 dark:text-zinc-700'}`} />
+        ))}
+      </div>
+    );
   };
 
   // Filter papers for active project searching
@@ -609,7 +694,7 @@ export default function Dashboard() {
                         Research Workspaces
                       </h1>
                       <p className="text-sm text-gray-400 mt-1">
-                        Select a research project to manage draft theses, reference literature, and custom paper chatbots.
+                        Select a research project to manage draft thesis, reference literature, and custom paper chatbots.
                       </p>
                     </div>
                     <button
@@ -725,7 +810,7 @@ export default function Dashboard() {
                       <button
                         onClick={() => setSelectedProject(null)}
                         className={`p-2.5 rounded-xl border hover-scale ${
-                          isDark ? 'border-pastel-darkBorder hover:bg-gray-800 text-gray-300' : 'border-gray-150 hover:bg-gray-50 text-gray-600'
+                          isDark ? 'border-pastel-darkBorder hover:bg-gray-800 text-gray-300' : 'border-gray-150 hover:bg-gray-55 text-gray-600'
                         }`}
                         title="Back to all projects"
                       >
@@ -1026,7 +1111,7 @@ export default function Dashboard() {
                                       ) : (
                                         <>
                                           <span className="text-xs font-semibold">Click to upload PDF</span>
-                                          <span className="text-[10px] text-gray-400 mt-1">Metadata will be auto-extracted</span>
+                                          <span className="text-[10px] text-gray-400 mt-1">Metadata & AI Evaluation auto-extracted</span>
                                         </>
                                       )}
                                     </label>
@@ -1051,7 +1136,7 @@ export default function Dashboard() {
                                     <div className="flex justify-between text-[10px] font-semibold text-blue-600">
                                       <span className={loadingProgress > 10 ? "text-blue-700" : "text-blue-300"}>Upload</span>
                                       <span className={loadingProgress > 35 ? "text-blue-700" : "text-blue-300"}>Reading</span>
-                                      <span className={loadingProgress > 65 ? "text-blue-700" : "text-blue-300"}>Extracting</span>
+                                      <span className={loadingProgress > 65 ? "text-blue-700" : "text-blue-300"}>Evaluating</span>
                                       <span className={loadingProgress > 90 ? "text-blue-700" : "text-blue-300"}>Finalizing</span>
                                     </div>
                                   </div>
@@ -1067,6 +1152,18 @@ export default function Dashboard() {
                                 {/* Metadata fields (only visible after selecting file) */}
                                 {selectedFile && (
                                   <div className="space-y-4 animate-fade-in">
+                                    {paperEvaluation && (
+                                      <div className="p-3.5 rounded-2xl bg-amber-500/10 text-amber-700 border border-amber-500/20 text-xs flex items-center justify-between">
+                                        <div className="flex items-center space-x-2">
+                                          <Sparkles className="w-4 h-4 text-amber-500 animate-pulse" />
+                                          <span className="font-bold">AI Reference Evaluation Generated</span>
+                                        </div>
+                                        <div className="flex items-center space-x-1">
+                                          <span className="font-extrabold bg-amber-500 text-white px-2 py-0.5 rounded text-[9px]">{paperEvaluation.overall_score}% Value</span>
+                                        </div>
+                                      </div>
+                                    )}
+
                                     <div>
                                       <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">
                                         Paper Title
@@ -1230,50 +1327,69 @@ export default function Dashboard() {
                                     <div 
                                       key={paper.id} 
                                       onClick={() => handleSelectPaper(paper)}
-                                      className={`p-5 rounded-2xl border transition-all hover:shadow-md cursor-pointer hover-scale ${
+                                      className={`p-5 rounded-2xl border transition-all hover:shadow-md cursor-pointer hover-scale flex flex-col justify-between ${
                                         isDark 
                                           ? 'bg-gradient-to-br from-slate-900 to-indigo-950/20 border-pastel-darkBorder hover:border-pastel-accent/40 text-gray-200' 
                                           : 'bg-gradient-to-br from-white to-slate-50 border-gray-100 hover:border-pastel-pink/50 text-gray-800'
                                       }`}
                                     >
-                                      <div className="flex items-start justify-between">
-                                        <div className="space-y-1">
-                                          <h3 className="font-bold text-sm text-pastel-accent leading-snug">{paper.title}</h3>
-                                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                                            {paper.author} &bull; {paper.domain}
-                                          </p>
+                                      <div>
+                                        <div className="flex items-start justify-between">
+                                          <div className="space-y-1">
+                                            <h3 className="font-bold text-sm text-pastel-accent leading-snug">{paper.title}</h3>
+                                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                                              {paper.author} &bull; {paper.domain}
+                                            </p>
+                                          </div>
+                                          <button
+                                            onClick={(e) => handleDeletePaper(paper.id, e)}
+                                            className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors"
+                                          >
+                                            <Trash2 className="w-4 h-4" />
+                                          </button>
                                         </div>
-                                        <button
-                                          onClick={(e) => handleDeletePaper(paper.id, e)}
-                                          className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors"
-                                        >
-                                          <Trash2 className="w-4 h-4" />
-                                        </button>
+
+                                        {paper.keywords && (
+                                          <div className="flex flex-wrap gap-1.5 mt-3">
+                                            {paper.keywords.split(',').map((kw, i) => (
+                                              <span 
+                                                key={i} 
+                                                className={`px-2 py-0.5 rounded-md text-[9px] font-bold ${
+                                                  isDark 
+                                                    ? 'bg-pastel-darkCard text-pastel-pink border border-pastel-darkBorder' 
+                                                    : 'bg-white text-pastel-accent border border-pastel-pink/30'
+                                                }`}
+                                              >
+                                                {kw.trim()}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        )}
+
+                                        {paper.summary && (
+                                          <div className={`mt-3 p-3 rounded-xl border text-xs leading-relaxed text-gray-500 dark:text-gray-400 ${
+                                            isDark ? 'bg-slate-900/40 border-pastel-darkBorder' : 'bg-gradient-to-r from-pink-50/20 to-blue-50/20 border-pastel-pink/20'
+                                          }`}>
+                                            <p className="font-extrabold text-[9px] uppercase tracking-wider text-pastel-accent mb-1">Summary snippet</p>
+                                            <p className="line-clamp-2">{paper.summary}</p>
+                                          </div>
+                                        )}
                                       </div>
 
-                                      {paper.keywords && (
-                                        <div className="flex flex-wrap gap-1.5 mt-3">
-                                          {paper.keywords.split(',').map((kw, i) => (
-                                            <span 
-                                              key={i} 
-                                              className={`px-2 py-0.5 rounded-md text-[9px] font-bold ${
-                                                isDark 
-                                                  ? 'bg-pastel-darkCard text-pastel-pink border border-pastel-darkBorder' 
-                                                  : 'bg-white text-pastel-accent border border-pastel-pink/30'
-                                              }`}
-                                            >
-                                              {kw.trim()}
-                                            </span>
-                                          ))}
-                                        </div>
-                                      )}
-
-                                      {paper.summary && (
-                                        <div className={`mt-3 p-3 rounded-xl border text-xs leading-relaxed text-gray-500 dark:text-gray-400 ${
-                                          isDark ? 'bg-slate-900/40 border-pastel-darkBorder' : 'bg-gradient-to-r from-pink-50/20 to-blue-50/20 border-pastel-pink/20'
-                                        }`}>
-                                          <p className="font-extrabold text-[9px] uppercase tracking-wider text-pastel-accent mb-1">Summary snippet</p>
-                                          <p className="line-clamp-2">{paper.summary}</p>
+                                      {/* AI Evaluation Button & Rating Row */}
+                                      {paper.evaluation && (
+                                        <div className="mt-4 pt-3 border-t border-gray-100 dark:border-pastel-darkBorder flex items-center justify-between">
+                                          {renderStars(paper.evaluation.overall_score)}
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setSelectedEvaluationPaper(paper);
+                                            }}
+                                            className="px-3 py-1.5 text-[9px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 rounded-lg flex items-center space-x-1 transition-all hover-scale"
+                                          >
+                                            <Sparkles className="w-3.5 h-3.5" />
+                                            <span>AI Evaluation Report</span>
+                                          </button>
                                         </div>
                                       )}
                                     </div>
@@ -1336,6 +1452,12 @@ export default function Dashboard() {
                                 <p className="font-bold text-pastel-accent">{selectedChatPaper.title}</p>
                                 <p className="text-gray-400 mt-1 font-semibold">{selectedChatPaper.author}</p>
                                 <p className="text-gray-400 mt-0.5">{selectedChatPaper.domain}</p>
+                                {selectedChatPaper.evaluation && (
+                                  <div className="mt-2.5 pt-2.5 border-t border-gray-200 dark:border-pastel-darkBorder flex items-center justify-between">
+                                    <span className="font-bold text-[10px] text-gray-450 uppercase">Research Value</span>
+                                    <span className="font-extrabold text-amber-600 dark:text-amber-400">{selectedChatPaper.evaluation.overall_score}%</span>
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>
@@ -1547,7 +1669,7 @@ export default function Dashboard() {
       {showCreateModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className={`w-full max-w-md rounded-3xl overflow-hidden p-6 shadow-2xl transition-all duration-300 border ${
-            isDark ? 'bg-pastel-darkCard border-pastel-darkBorder text-gray-250' : 'bg-white text-gray-800 border-gray-100'
+            isDark ? 'bg-pastel-darkCard border-pastel-darkBorder text-gray-255' : 'bg-white text-gray-850 border-gray-100'
           }`}>
             <div className="flex items-center justify-between border-b pb-4 mb-4 dark:border-pastel-darkBorder">
               <h3 className="font-extrabold text-lg text-pastel-accent">Create Project</h3>
@@ -1620,7 +1742,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* VIEW PAPER MODAL (PDF + Chatbot Split Panel) */}
+      {/* VIEW PAPER MODAL (PDF + Chatbot Split Panel with Tab layout inside Left column) */}
       {selectedPaper && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className={`w-full max-w-7xl h-[90vh] rounded-3xl overflow-hidden flex flex-col shadow-2xl transition-all duration-300 border ${
@@ -1649,7 +1771,7 @@ export default function Dashboard() {
                 <button 
                   onClick={handleCloseModal}
                   className={`p-2 rounded-xl border hover-scale ${
-                    isDark ? 'border-pastel-darkBorder hover:bg-gray-800 text-gray-400' : 'border-gray-150 hover:bg-gray-50 text-gray-500'
+                    isDark ? 'border-pastel-darkBorder hover:bg-gray-800 text-gray-400' : 'border-gray-150 hover:bg-gray-55 text-gray-505'
                   }`}
                 >
                   <X className="w-4 h-4" />
@@ -1657,129 +1779,296 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Modal Body: Left column has Summary & Chatbot, Right column has PDF */}
+            {/* Modal Body */}
             <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
               
-              {/* Left Pane: Info, Summary & Chatbot */}
-              <div className="w-full md:w-5/12 overflow-y-auto border-r dark:border-pastel-darkBorder flex flex-col h-full bg-slate-50 dark:bg-slate-900/30">
+              {/* Left Pane: Split tabs containing Summary, AI Evaluation report, and chatbot */}
+              <div className="w-full md:w-5/12 overflow-hidden flex flex-col h-full bg-slate-50 dark:bg-slate-900/30 border-r dark:border-pastel-darkBorder">
                 
-                {/* Paper details and Summary */}
-                <div className="p-6 border-b dark:border-pastel-darkBorder space-y-4 flex-shrink-0 bg-white dark:bg-pastel-darkCard">
-                  <div>
-                    <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Academic Domain</h4>
-                    <span className="px-3 py-1 rounded-lg text-xs font-bold bg-pastel-pink/20 text-pastel-accent border border-pastel-pink/30">
-                      {selectedPaper.domain}
-                    </span>
-                  </div>
-
-                  <div>
-                    <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Author(s)</h4>
-                    <p className="text-xs font-semibold text-gray-600 dark:text-gray-300">{selectedPaper.author}</p>
-                  </div>
-
-                  {selectedPaper.keywords && (
-                    <div>
-                      <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">Keywords</h4>
-                      <div className="flex flex-wrap gap-1">
-                        {selectedPaper.keywords.split(',').map((kw, i) => (
-                          <span 
-                            key={i} 
-                            className={`px-2 py-0.5 rounded-md text-[9px] font-bold ${
-                              isDark 
-                                ? 'bg-gray-800 text-pastel-pink border border-pastel-darkBorder' 
-                                : 'bg-gray-100 text-pastel-accent border border-gray-200'
-                            }`}
-                          >
-                            {kw.trim()}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {selectedPaper.summary && (
-                    <div>
-                      <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">AI Generated Summary</h4>
-                      <p className="text-xs leading-relaxed text-gray-500 dark:text-gray-400 bg-slate-50 dark:bg-slate-900 p-3 rounded-xl border border-gray-150 dark:border-pastel-darkBorder max-h-[120px] overflow-y-auto">
-                        {selectedPaper.summary}
-                      </p>
-                    </div>
-                  )}
-                </div>
-
-                {/* Stored Paper Chatbot Section */}
-                <div className="flex-1 flex flex-col overflow-hidden min-h-[300px]">
-                  
-                  {/* Chat messages log */}
-                  <div className="flex-1 overflow-y-auto p-6 space-y-4">
-                    <h4 className="text-xs font-bold text-pastel-accent uppercase tracking-wider flex items-center space-x-1.5 mb-2">
-                      <MessageSquare className="w-4 h-4 text-pastel-accent" />
-                      <span>Stored Paper Chatbot</span>
-                    </h4>
-
-                    {modalChatHistory.length === 0 ? (
-                      <div className="py-8 text-center text-gray-400 text-xs">
-                        <MessageSquare className="w-8 h-8 mx-auto mb-2 text-pastel-accent opacity-30" />
-                        <p className="font-bold">Ask anything about this document</p>
-                        <p className="text-[10px] text-gray-400/80 mt-0.5">Responses are derived specifically from the paper text.</p>
-                      </div>
-                    ) : (
-                      modalChatHistory.map((msg, idx) => (
-                        <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                          <div className={`max-w-[85%] p-3 rounded-xl text-xs leading-relaxed shadow-sm ${
-                            msg.role === 'user'
-                              ? 'bg-pastel-accent text-white rounded-tr-none'
-                              : isDark 
-                                ? 'bg-slate-800 text-gray-150 border border-slate-700 rounded-tl-none' 
-                                : 'bg-white text-gray-800 border border-gray-150 rounded-tl-none'
-                          }`}>
-                            <span className="font-bold text-[8px] uppercase tracking-wider block opacity-75 mb-0.5">
-                              {msg.role === 'user' ? 'You' : 'Paper AI'}
-                            </span>
-                            <p className="whitespace-pre-wrap">{msg.content}</p>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                    
-                    {modalChatLoading && (
-                      <div className="flex justify-start">
-                        <div className={`p-3 rounded-xl rounded-tl-none flex items-center space-x-2 text-xs text-gray-400 ${
-                          isDark ? 'bg-slate-800' : 'bg-white border border-gray-150'
-                        }`}>
-                          <Loader2 className="w-3 h-3 animate-spin text-pastel-accent" />
-                          <span>AI is checking paper text...</span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Chat input box */}
-                  <form onSubmit={handleModalChatSend} className="p-4 border-t bg-white dark:bg-pastel-darkCard dark:border-pastel-darkBorder flex items-center space-x-2 flex-shrink-0">
-                    <input
-                      type="text"
-                      value={modalQuestion}
-                      onChange={(e) => setModalQuestion(e.target.value)}
-                      disabled={modalChatLoading}
-                      placeholder="Ask a question about this reference paper..."
-                      className={`flex-1 px-3.5 py-2.5 rounded-xl text-xs focus:outline-none focus:border-pastel-accent ${
-                        isDark
-                          ? 'bg-slate-800 border-slate-700 text-white'
-                          : 'bg-slate-50 border-gray-200 text-gray-900'
-                      }`}
-                    />
+                {/* Left pane inner tab selectors */}
+                <div className="flex border-b dark:border-pastel-darkBorder bg-white dark:bg-pastel-darkCard flex-shrink-0">
+                  <button
+                    onClick={() => setActiveModalTab('summary')}
+                    className={`flex-1 py-3 text-xs font-bold text-center border-b-2 transition-all ${
+                      activeModalTab === 'summary'
+                        ? 'border-pastel-accent text-pastel-accent'
+                        : 'border-transparent text-gray-400 hover:text-gray-600 dark:hover:text-gray-200'
+                    }`}
+                  >
+                    Summary & Info
+                  </button>
+                  {selectedPaper.evaluation && (
                     <button
-                      type="submit"
-                      disabled={modalChatLoading || !modalQuestion.trim()}
-                      className={`px-4 py-2.5 rounded-xl text-xs font-bold text-white shadow-sm transition-all ${
-                        modalChatLoading || !modalQuestion.trim()
-                          ? 'bg-gray-300 dark:bg-gray-800 text-gray-400 cursor-not-allowed'
-                          : 'bg-pastel-accent hover:bg-pastel-accent/90 hover-scale'
+                      onClick={() => setActiveModalTab('evaluation')}
+                      className={`flex-1 py-3 text-xs font-bold text-center border-b-2 transition-all ${
+                        activeModalTab === 'evaluation'
+                          ? 'border-pastel-accent text-pastel-accent'
+                          : 'border-transparent text-gray-400 hover:text-gray-600 dark:hover:text-gray-200'
                       }`}
                     >
-                      Ask
+                      AI Evaluation Report
                     </button>
-                  </form>
+                  )}
+                  <button
+                    onClick={() => setActiveModalTab('chat')}
+                    className={`flex-1 py-3 text-xs font-bold text-center border-b-2 transition-all ${
+                      activeModalTab === 'chat'
+                        ? 'border-pastel-accent text-pastel-accent'
+                        : 'border-transparent text-gray-400 hover:text-gray-600 dark:hover:text-gray-200'
+                    }`}
+                  >
+                    Paper Chat
+                  </button>
+                </div>
+
+                {/* Left pane inner dynamic views */}
+                <div className="flex-1 overflow-y-auto">
+                  
+                  {/* Tab 1: Info & Summary */}
+                  {activeModalTab === 'summary' && (
+                    <div className="p-6 space-y-5 animate-fade-in">
+                      <div>
+                        <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">Academic Domain</h4>
+                        <span className="px-3 py-1 rounded-lg text-xs font-bold bg-pastel-pink/20 text-pastel-accent border border-pastel-pink/30">
+                          {selectedPaper.domain}
+                        </span>
+                      </div>
+
+                      <div>
+                        <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Author(s)</h4>
+                        <p className="text-xs font-semibold text-gray-600 dark:text-gray-305">{selectedPaper.author}</p>
+                      </div>
+
+                      {selectedPaper.keywords && (
+                        <div>
+                          <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">Keywords</h4>
+                          <div className="flex flex-wrap gap-1">
+                            {selectedPaper.keywords.split(',').map((kw, i) => (
+                              <span 
+                                key={i} 
+                                className={`px-2 py-0.5 rounded-md text-[9px] font-bold ${
+                                  isDark 
+                                    ? 'bg-gray-800 text-pastel-pink border border-pastel-darkBorder' 
+                                    : 'bg-gray-100 text-pastel-accent border border-gray-200'
+                                }`}
+                              >
+                                {kw.trim()}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {selectedPaper.abstract && (
+                        <div>
+                          <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Abstract</h4>
+                          <p className="text-xs leading-relaxed text-gray-500 dark:text-gray-400 text-justify">
+                            {selectedPaper.abstract}
+                          </p>
+                        </div>
+                      )}
+
+                      {selectedPaper.summary && (
+                        <div>
+                          <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">AI Summary</h4>
+                          <div className={`p-4 rounded-2xl border text-xs leading-relaxed text-gray-500 dark:text-gray-400 ${
+                            isDark ? 'bg-slate-900/50 border-pastel-darkBorder' : 'bg-white border-gray-150'
+                          }`}>
+                            {selectedPaper.summary}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Tab 2: AI Evaluation Report */}
+                  {activeModalTab === 'evaluation' && selectedPaper.evaluation && (
+                    <div className="p-6 space-y-6 animate-fade-in">
+                      
+                      {/* Overall Research Score & Rating Card */}
+                      <div className="p-5 rounded-3xl bg-gradient-to-r from-amber-500/10 to-pastel-pink/10 border border-amber-500/20">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Overall Research Value</h4>
+                            <div className="flex items-center space-x-2 mt-1.5">
+                              {renderStars(selectedPaper.evaluation.overall_score)}
+                              <span className="text-sm font-extrabold text-amber-600 dark:text-amber-400">
+                                {selectedPaper.evaluation.overall_score}%
+                              </span>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Contribution</h4>
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase inline-block mt-1 ${
+                              selectedPaper.evaluation.research_contribution === 'High'
+                                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                : selectedPaper.evaluation.research_contribution === 'Medium'
+                                  ? 'bg-amber-500/10 text-amber-600'
+                                  : 'bg-gray-100 text-gray-500'
+                            }`}>
+                              {selectedPaper.evaluation.research_contribution}
+                            </span>
+                          </div>
+                        </div>
+                        
+                        <div className="mt-4 pt-3.5 border-t border-amber-500/15 flex items-center justify-between text-xs font-semibold">
+                          <span className="text-gray-450">Paper Type:</span>
+                          <span className="text-gray-700 dark:text-gray-250 font-bold">{selectedPaper.evaluation.paper_type}</span>
+                        </div>
+                        <div className="mt-2 flex items-center justify-between text-xs font-semibold">
+                          <span className="text-gray-450">Citation value:</span>
+                          <span className="text-amber-600 dark:text-amber-400 font-extrabold">{selectedPaper.evaluation.citation_value}</span>
+                        </div>
+                      </div>
+
+                      {/* Strengths list */}
+                      {selectedPaper.evaluation.strengths && selectedPaper.evaluation.strengths.length > 0 && (
+                        <div>
+                          <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Strengths</h4>
+                          <div className="space-y-2">
+                            {selectedPaper.evaluation.strengths.map((str, idx) => (
+                              <div key={idx} className="flex items-start space-x-2 text-xs">
+                                <div className="p-0.5 rounded-full bg-emerald-500/20 text-emerald-600 mt-0.5 flex-shrink-0">
+                                  <Check className="w-3 h-3" />
+                                </div>
+                                <span className="text-gray-500 dark:text-gray-400 leading-normal">{str}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Weaknesses list */}
+                      {selectedPaper.evaluation.weaknesses && selectedPaper.evaluation.weaknesses.length > 0 && (
+                        <div>
+                          <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Limitations & Weaknesses</h4>
+                          <div className="space-y-2">
+                            {selectedPaper.evaluation.weaknesses.map((wk, idx) => (
+                              <div key={idx} className="flex items-start space-x-2 text-xs">
+                                <div className="p-0.5 rounded-full bg-red-500/10 text-red-500 mt-0.5 flex-shrink-0">
+                                  <AlertTriangle className="w-3 h-3" />
+                                </div>
+                                <span className="text-gray-500 dark:text-gray-400 leading-normal">{wk}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Best used for */}
+                      {selectedPaper.evaluation.best_for && selectedPaper.evaluation.best_for.length > 0 && (
+                        <div>
+                          <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Best Used For</h4>
+                          <div className="flex flex-wrap gap-1.5">
+                            {selectedPaper.evaluation.best_for.map((bf, idx) => (
+                              <span 
+                                key={idx}
+                                className="px-2.5 py-1 text-[10px] font-bold rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/15"
+                              >
+                                ✔ {bf}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Not recommended for */}
+                      {selectedPaper.evaluation.not_recommended_for && selectedPaper.evaluation.not_recommended_for.length > 0 && (
+                        <div>
+                          <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Not Recommended For</h4>
+                          <div className="flex flex-wrap gap-1.5">
+                            {selectedPaper.evaluation.not_recommended_for.map((nrf, idx) => (
+                              <span 
+                                key={idx}
+                                className="px-2.5 py-1 text-[10px] font-bold rounded-lg bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/15"
+                              >
+                                ✖ {nrf}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                    </div>
+                  )}
+
+                  {/* Tab 3: Chat with Paper (synced with DB) */}
+                  {activeModalTab === 'chat' && (
+                    <div className="h-full flex flex-col justify-between">
+                      
+                      {/* Chat log */}
+                      <div className="flex-1 overflow-y-auto p-6 space-y-4 max-h-[420px]">
+                        <h4 className="text-[10px] font-bold text-pastel-accent uppercase tracking-wider flex items-center space-x-1.5">
+                          <MessageSquare className="w-3.5 h-3.5 text-pastel-accent" />
+                          <span>Ollama Synced dialogue context</span>
+                        </h4>
+
+                        {modalChatHistory.length === 0 ? (
+                          <div className="py-12 text-center text-gray-450">
+                            <MessageSquare className="w-8 h-8 mx-auto mb-2 text-pastel-accent opacity-30" />
+                            <p className="font-bold text-xs">Start a synchronized conversation</p>
+                            <p className="text-[9px] text-gray-400/80 mt-0.5">Queries and conversation history save in the database.</p>
+                          </div>
+                        ) : (
+                          modalChatHistory.map((msg, idx) => (
+                            <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                              <div className={`max-w-[85%] p-3 rounded-xl text-xs leading-relaxed shadow-sm ${
+                                msg.role === 'user'
+                                  ? 'bg-pastel-accent text-white rounded-tr-none'
+                                  : isDark 
+                                    ? 'bg-slate-800 text-gray-150 border border-slate-700 rounded-tl-none' 
+                                    : 'bg-white text-gray-800 border border-gray-150 rounded-tl-none'
+                              }`}>
+                                <span className="font-bold text-[8px] uppercase tracking-wider block opacity-75 mb-0.5">
+                                  {msg.role === 'user' ? 'You' : 'Paper AI'}
+                                </span>
+                                <p className="whitespace-pre-wrap">{msg.content}</p>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                        
+                        {modalChatLoading && (
+                          <div className="flex justify-start">
+                            <div className={`p-3 rounded-xl rounded-tl-none flex items-center space-x-2 text-xs text-gray-400 ${
+                              isDark ? 'bg-slate-800' : 'bg-white border border-gray-150'
+                            }`}>
+                              <Loader2 className="w-3 h-3 animate-spin text-pastel-accent" />
+                              <span>AI is reading paper details...</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Input panel */}
+                      <form onSubmit={handleModalChatSend} className="p-4 border-t bg-white dark:bg-pastel-darkCard dark:border-pastel-darkBorder flex items-center space-x-2 flex-shrink-0">
+                        <input
+                          type="text"
+                          value={modalQuestion}
+                          onChange={(e) => setModalQuestion(e.target.value)}
+                          disabled={modalChatLoading}
+                          placeholder="Ask a question about this reference paper..."
+                          className={`flex-1 px-3.5 py-2.5 rounded-xl text-xs focus:outline-none focus:border-pastel-accent ${
+                            isDark
+                              ? 'bg-slate-800 border-slate-700 text-white'
+                              : 'bg-slate-55 border-gray-200 text-gray-900'
+                          }`}
+                        />
+                        <button
+                          type="submit"
+                          disabled={modalChatLoading || !modalQuestion.trim()}
+                          className={`px-4 py-2.5 rounded-xl text-xs font-bold text-white shadow-sm transition-all ${
+                            modalChatLoading || !modalQuestion.trim()
+                              ? 'bg-gray-300 dark:bg-gray-800 text-gray-400 cursor-not-allowed'
+                              : 'bg-pastel-accent hover:bg-pastel-accent/90 hover-scale'
+                          }`}
+                        >
+                          Ask
+                        </button>
+                      </form>
+                    </div>
+                  )}
+
                 </div>
 
               </div>
@@ -1808,6 +2097,150 @@ export default function Dashboard() {
                 )}
               </div>
 
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI EVALUATION MODAL (STANDALONE DETAILS DIALOG) */}
+      {selectedEvaluationPaper && selectedEvaluationPaper.evaluation && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className={`w-full max-w-2xl rounded-3xl overflow-hidden p-6 shadow-2xl transition-all duration-300 border flex flex-col ${
+            isDark ? 'bg-pastel-darkCard border-pastel-darkBorder text-gray-200' : 'bg-white text-gray-800 border-gray-150'
+          }`}>
+            
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b pb-4 mb-5 dark:border-pastel-darkBorder">
+              <div className="overflow-hidden mr-4">
+                <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded uppercase tracking-wider">
+                  AI Reference Paper Evaluation
+                </span>
+                <h3 className="font-extrabold text-sm text-pastel-accent truncate mt-1 leading-snug">
+                  {selectedEvaluationPaper.title}
+                </h3>
+              </div>
+              <button 
+                onClick={() => setSelectedEvaluationPaper(null)}
+                className={`p-1.5 rounded-lg border hover-scale flex-shrink-0 ${
+                  isDark ? 'border-pastel-darkBorder hover:bg-gray-800 text-gray-400' : 'border-gray-150 hover:bg-gray-50 text-gray-505'
+                }`}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="space-y-6 overflow-y-auto max-h-[65vh] pr-2">
+              
+              {/* Score rating panel */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-5 rounded-3xl bg-gradient-to-r from-amber-500/10 to-pastel-pink/10 border border-amber-500/15">
+                <div>
+                  <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Research Value Score</h4>
+                  <div className="flex items-center space-x-2 mt-1">
+                    {renderStars(selectedEvaluationPaper.evaluation.overall_score)}
+                    <span className="text-sm font-extrabold text-amber-600 dark:text-amber-400">
+                      {selectedEvaluationPaper.evaluation.overall_score}%
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Citation Recommendation</h4>
+                  <span className="text-xs font-extrabold text-amber-600 dark:text-amber-400 block mt-1">
+                    {selectedEvaluationPaper.evaluation.citation_value}
+                  </span>
+                </div>
+                <div className="pt-2 border-t border-amber-500/10">
+                  <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Research Type</h4>
+                  <span className="text-xs font-bold text-gray-700 dark:text-gray-300 block mt-0.5">
+                    {selectedEvaluationPaper.evaluation.paper_type}
+                  </span>
+                </div>
+                <div className="pt-2 border-t border-amber-500/10">
+                  <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Research Contribution</h4>
+                  <span className="text-xs font-bold text-gray-700 dark:text-gray-300 block mt-0.5">
+                    {selectedEvaluationPaper.evaluation.research_contribution}
+                  </span>
+                </div>
+              </div>
+
+              {/* Strengths list */}
+              {selectedEvaluationPaper.evaluation.strengths && selectedEvaluationPaper.evaluation.strengths.length > 0 && (
+                <div>
+                  <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Key Strengths</h4>
+                  <div className="space-y-2">
+                    {selectedEvaluationPaper.evaluation.strengths.map((str, idx) => (
+                      <div key={idx} className="flex items-start space-x-2 text-xs">
+                        <div className="p-0.5 rounded-full bg-emerald-500/20 text-emerald-600 mt-0.5 flex-shrink-0">
+                          <Check className="w-3 h-3" />
+                        </div>
+                        <span className="text-gray-500 dark:text-gray-400 leading-normal">{str}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Weaknesses list */}
+              {selectedEvaluationPaper.evaluation.weaknesses && selectedEvaluationPaper.evaluation.weaknesses.length > 0 && (
+                <div>
+                  <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Key Limitations</h4>
+                  <div className="space-y-2">
+                    {selectedEvaluationPaper.evaluation.weaknesses.map((wk, idx) => (
+                      <div key={idx} className="flex items-start space-x-2 text-xs">
+                        <div className="p-0.5 rounded-full bg-red-500/10 text-red-500 mt-0.5 flex-shrink-0">
+                          <AlertTriangle className="w-3 h-3" />
+                        </div>
+                        <span className="text-gray-500 dark:text-gray-400 leading-normal">{wk}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Best used for */}
+              {selectedEvaluationPaper.evaluation.best_for && selectedEvaluationPaper.evaluation.best_for.length > 0 && (
+                <div>
+                  <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Best Used For (Thesis integration)</h4>
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedEvaluationPaper.evaluation.best_for.map((bf, idx) => (
+                      <span 
+                        key={idx}
+                        className="px-2.5 py-1 text-[10px] font-bold rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/15"
+                      >
+                        ✔ {bf}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Not recommended for */}
+              {selectedEvaluationPaper.evaluation.not_recommended_for && selectedEvaluationPaper.evaluation.not_recommended_for.length > 0 && (
+                <div>
+                  <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Not Recommended For</h4>
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedEvaluationPaper.evaluation.not_recommended_for.map((nrf, idx) => (
+                      <span 
+                        key={idx}
+                        className="px-2.5 py-1 text-[10px] font-bold rounded-lg bg-red-500/10 text-red-650 dark:text-red-400 border border-red-500/15"
+                      >
+                        ✖ {nrf}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+            </div>
+
+            {/* Modal Footer */}
+            <div className="border-t pt-4 mt-5 flex justify-end dark:border-pastel-darkBorder flex-shrink-0">
+              <button
+                onClick={() => setSelectedEvaluationPaper(null)}
+                className="px-5 py-2.5 text-xs font-bold bg-pastel-accent text-white rounded-xl shadow-sm hover:bg-pastel-accent/90 hover-scale"
+              >
+                Close Report
+              </button>
             </div>
           </div>
         </div>

@@ -222,4 +222,72 @@ class Paper(Base):
     project = relationship(
         "Project",
         back_populates="papers"
-    )
+    )
+
+    evaluation = relationship(
+        "PaperEvaluation",
+        back_populates="paper",
+        uselist=False,
+        cascade="all, delete-orphan"
+    )
+
+    chat_messages = relationship(
+        "PaperChatMessage",
+        back_populates="paper",
+        cascade="all, delete-orphan",
+        order_by="PaperChatMessage.created_at.asc()"
+    )
+
+
+class PaperEvaluation(Base):
+    __tablename__ = "paper_evaluations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    paper_id = Column(
+        Integer,
+        ForeignKey("papers.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True
+    )
+
+    overall_score = Column(Integer, nullable=False, default=70)
+    paper_type = Column(String, nullable=False, default="Research Paper")
+    citation_value = Column(String, nullable=False, default="Recommended")
+    research_contribution = Column(String, nullable=False, default="Medium")
+
+    strengths = Column(Text, nullable=True)
+    weaknesses = Column(Text, nullable=True)
+    best_for = Column(Text, nullable=True)
+    not_recommended_for = Column(Text, nullable=True)
+
+    created_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc)
+    )
+
+    paper = relationship(
+        "Paper",
+        back_populates="evaluation"
+    )
+
+
+class PaperChatMessage(Base):
+    __tablename__ = "paper_chat_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    paper_id = Column(
+        Integer,
+        ForeignKey("papers.id", ondelete="CASCADE"),
+        nullable=False
+    )
+    role = Column(String, nullable=False)
+    content = Column(Text, nullable=False)
+    created_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc)
+    )
+
+    paper = relationship(
+        "Paper",
+        back_populates="chat_messages"
+    )

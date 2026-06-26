@@ -150,7 +150,8 @@ def create_user_paper(
     file_name: str,
     file_data: bytes,
     user_id: int,
-    project_id: int = None
+    project_id: int = None,
+    evaluation_data: dict = None
 ):
     db_paper = models.Paper(
         user_id=user_id,
@@ -170,7 +171,24 @@ def create_user_paper(
     db.commit()
     db.refresh(db_paper)
 
+    if evaluation_data:
+        db_eval = models.PaperEvaluation(
+            paper_id=db_paper.id,
+            overall_score=evaluation_data.get("overall_score", 70),
+            paper_type=evaluation_data.get("paper_type", "Research Paper"),
+            citation_value=evaluation_data.get("citation_value", "Recommended"),
+            research_contribution=evaluation_data.get("research_contribution", "Medium"),
+            strengths=json.dumps(evaluation_data.get("strengths", [])),
+            weaknesses=json.dumps(evaluation_data.get("weaknesses", [])),
+            best_for=json.dumps(evaluation_data.get("best_for", [])),
+            not_recommended_for=json.dumps(evaluation_data.get("not_recommended_for", []))
+        )
+        db.add(db_eval)
+        db.commit()
+        db.refresh(db_paper)
+
     return db_paper
+
 
 
 def delete_user_paper(
@@ -205,3 +223,24 @@ def get_user_by_google_id(
         )
         .first()
     )
+
+
+def get_paper_chat_history(db: Session, paper_id: int):
+    return (
+        db.query(models.PaperChatMessage)
+        .filter(models.PaperChatMessage.paper_id == paper_id)
+        .order_by(models.PaperChatMessage.created_at.asc())
+        .all()
+    )
+
+
+def add_paper_chat_message(db: Session, paper_id: int, role: str, content: str):
+    db_msg = models.PaperChatMessage(
+        paper_id=paper_id,
+        role=role,
+        content=content
+    )
+    db.add(db_msg)
+    db.commit()
+    db.refresh(db_msg)
+    return db_msg

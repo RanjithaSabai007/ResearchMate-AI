@@ -625,6 +625,7 @@ async def create_paper(
     file: UploadFile = File(None),
     paper_text: str = Form(None),
     project_id: int = Form(None),
+    evaluation: str = Form(None),
     current_session: models.Session = Depends(get_current_session),
     db: Session = Depends(get_db)
 ):
@@ -642,6 +643,13 @@ async def create_paper(
         session_id=current_session.id,
         details=f"Added paper: {title}"
     )
+
+    eval_data = None
+    if evaluation:
+        try:
+            eval_data = json.loads(evaluation)
+        except Exception as e:
+            print("Failed to parse evaluation field in POST /api/papers:", e)
     
     new_paper = crud.create_user_paper(
         db,
@@ -655,13 +663,85 @@ async def create_paper(
         file_data=file_data,
         paper_text=paper_text,
         user_id=current_session.user_id,
-        project_id=project_id
+        project_id=project_id,
+        evaluation_data=eval_data
     )
     return {
         "success": True,
         "data": new_paper,
         "error_code": None,
         "message": "Paper created successfully."
+    }
+
+# --- Paper Specific Chat Endpoints ---
+
+@app.get("/api/papers/{paper_id}/chat", response_model=schemas.ApiResponse[list[schemas.PaperChatMessageResponse]], tags=["Research Papers"])
+def get_paper_chat(
+    paper_id: int,
+    current_session: models.Session = Depends(get_current_session),
+    db: Session = Depends(get_db)
+):
+    # Verify paper ownership
+    paper = db.query(models.Paper).filter(models.Paper.id == paper_id, models.Paper.user_id == current_session.user_id).first()
+    if not paper:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "status_code": 404,
+                "error_code": "PAPER_NOT_FOUND",
+                "message": "The reference paper could not be found."
+            }
+        )
+    return {
+        "success": True,
+        "data": crud.get_paper_chat_history(db, paper_id),
+        "error_code": None,
+        "message": "Paper chat history retrieved successfully."
+    }
+
+@app.post("/api/papers/{paper_id}/chat", response_model=schemas.ApiResponse[dict], tags=["Research Papers"])
+def send_paper_chat(
+    paper_id: int,
+    chat_req: schemas.PaperChatRequest,
+    current_session: models.Session = Depends(get_current_session),
+    db: Session = Depends(get_db)
+):
+    # Verify paper ownership
+    paper = db.query(models.Paper).filter(models.Paper.id == paper_id, models.Paper.user_id == current_session.user_id).first()
+    if not paper:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "status_code": 404,
+                "error_code": "PAPER_NOT_FOUND",
+                "message": "The reference paper could not be found."
+            }
+        )
+        
+    question = chat_req.question
+    
+    # Load conversation history
+    history = crud.get_paper_chat_history(db, paper_id)
+    
+    # Query Ollama with chat memory context
+    from app.services.chat_service import ask_paper_question
+    answer = ask_paper_question(
+        paper_text=paper.paper_text or paper.summary or "",
+        question=question,
+        chat_history=history
+    )
+    
+    # Save conversation context
+    crud.add_paper_chat_message(db, paper_id, role="user", content=question)
+    crud.add_paper_chat_message(db, paper_id, role="assistant", content=answer)
+    
+    return {
+        "success": True,
+        "data": {
+            "answer": answer
+        },
+        "error_code": None,
+        "message": "Question answered and stored successfully."
     }
 
 # --- Project Endpoints ---

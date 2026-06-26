@@ -11,6 +11,8 @@ router = APIRouter(
     tags=["AI"]
 )
 
+from app.services.evaluation_service import evaluate_paper
+
 @router.post("/extract-metadata")
 async def extract_pdf_metadata(
     file: UploadFile = File(...)
@@ -35,12 +37,19 @@ async def extract_pdf_metadata(
         extracted_text
     )
 
+    evaluation = evaluate_paper(
+        extracted_text,
+        metadata,
+        summary
+    )
+
     return {
         "success": True,
         "data": {
             "metadata": metadata,
             "summary": summary,
-            "paper_text": extracted_text
+            "paper_text": extracted_text,
+            "evaluation": evaluation
         }
     }
 

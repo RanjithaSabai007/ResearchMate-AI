@@ -96,6 +96,40 @@ def run_migrations():
                 conn.execute(text("ALTER TABLE papers ADD COLUMN IF NOT EXISTS project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE;"))
                 conn.commit()
                 print("Papers table migration completed successfully.")
+
+            # 4. Ensure paper_evaluations table exists
+            print("Ensuring paper_evaluations table exists...")
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS paper_evaluations (
+                    id SERIAL PRIMARY KEY,
+                    paper_id INTEGER NOT NULL UNIQUE REFERENCES papers(id) ON DELETE CASCADE,
+                    overall_score INTEGER NOT NULL DEFAULT 70,
+                    paper_type VARCHAR NOT NULL DEFAULT 'Research Paper',
+                    citation_value VARCHAR NOT NULL DEFAULT 'Recommended',
+                    research_contribution VARCHAR NOT NULL DEFAULT 'Medium',
+                    strengths TEXT,
+                    weaknesses TEXT,
+                    best_for TEXT,
+                    not_recommended_for TEXT,
+                    created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT (NOW() AT TIME ZONE 'UTC')
+                );
+            """))
+            conn.commit()
+            print("Paper evaluations table check/creation completed.")
+
+            # 5. Ensure paper_chat_messages table exists
+            print("Ensuring paper_chat_messages table exists...")
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS paper_chat_messages (
+                    id SERIAL PRIMARY KEY,
+                    paper_id INTEGER NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+                    role VARCHAR NOT NULL,
+                    content TEXT NOT NULL,
+                    created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT (NOW() AT TIME ZONE 'UTC')
+                );
+            """))
+            conn.commit()
+            print("Paper chat messages table check/creation completed.")
     except Exception as e:
         print(f"Database auto-migration warning: {e}")
 
