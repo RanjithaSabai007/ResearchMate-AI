@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 from app.ai import router as ai_router
 import json
+import httpx
 
 from app import ai
 from authlib.integrations.starlette_client import OAuth
@@ -549,24 +550,71 @@ async def microsoft_callback(request: Request, db: Session = Depends(get_db)):
 
 @app.get("/api/auth/linkedin/callback")
 async def linkedin_callback(request: Request, db: Session = Depends(get_db)):
-    try:
-        token = await oauth.linkedin.authorize_access_token(request)
-    except Exception as e:
-        import urllib.parse
-        error_msg = urllib.parse.quote(f"LinkedIn authentication failed: {str(e)}")
-        from fastapi.responses import RedirectResponse
-        return RedirectResponse(url=f"http://localhost:5173/login?error={error_msg}")
-        
-    user_info = token.get("userinfo")
-    if not user_info:
-        from fastapi.responses import RedirectResponse
-        return RedirectResponse(url="http://localhost:5173/login?error=Failed+to+retrieve+user+info+from+LinkedIn")
-        
-    email = user_info.get("email")
-    username = user_info.get("name") or f"{user_info.get('given_name', '')} {user_info.get('family_name', '')}".strip() or email.split("@")[0]
-    
-    return handle_sso_success(request, db, email, username, "linkedin")
+    from fastapi.responses import RedirectResponse
 
+    code = request.query_params.get("code")
+
+    if not code:
+        return RedirectResponse(
+            "http://localhost:5173/login?error=No+authorization+code+received"
+        )
+
+    token_url = "https://www.linkedin.com/oauth/v2/accessToken"
+
+    async with httpx.AsyncClient() as client:
+        token_response = await client.post(
+            token_url,
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": "http://localhost:8000/api/auth/linkedin/callback",
+                "client_id": LINKEDIN_CLIENT_ID,
+                "client_secret": LINKEDIN_CLIENT_SECRET,
+            },
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded"
+            }
+        )
+
+    if token_response.status_code != 200:
+        return RedirectResponse(
+            f"http://localhost:5173/login?error={token_response.text}"
+        )
+
+    token = token_response.json()
+
+    access_token = token["access_token"]
+
+    async with httpx.AsyncClient() as client:
+        user_response = await client.get(
+            "https://api.linkedin.com/v2/userinfo",
+            headers={
+                "Authorization": f"Bearer {access_token}"
+            }
+        )
+
+    if user_response.status_code != 200:
+        return RedirectResponse(
+            "http://localhost:5173/login?error=Unable+to+retrieve+LinkedIn+profile"
+        )
+
+    user = user_response.json()
+
+    email = user["email"]
+    username = (
+        user.get("name")
+        or f"{user.get('given_name','')} {user.get('family_name','')}".strip()
+        or email.split("@")[0]
+    )
+
+    return handle_sso_success(
+        request,
+        db,
+        email,
+        username,
+        "linkedin"
+    )
+    
 @app.get("/api/auth/github/callback")
 async def github_callback(request: Request, db: Session = Depends(get_db)):
     try:
