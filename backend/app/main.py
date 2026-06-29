@@ -934,6 +934,305 @@ def delete_project(
     }
 
 
+# --- Paper Comparison Endpoints ---
+
+@app.post("/api/projects/{project_id}/comparisons", response_model=schemas.ApiResponse[schemas.PaperComparisonResponse], status_code=status.HTTP_201_CREATED, tags=["Paper Comparisons"])
+def generate_project_comparison(
+    project_id: int,
+    comp_data: schemas.PaperComparisonCreate,
+    current_session: models.Session = Depends(get_current_session),
+    db: Session = Depends(get_db)
+):
+    # Verify project ownership
+    project = crud.get_project(db, project_id, current_session.user_id)
+    if not project:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "status_code": 404,
+                "error_code": "PROJECT_NOT_FOUND",
+                "message": "The project could not be found."
+            }
+        )
+        
+    paper_ids = comp_data.paper_ids
+    if len(paper_ids) < 2:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "status_code": 400,
+                "error_code": "INSUFFICIENT_PAPERS",
+                "message": "Please select at least 2 papers to compare."
+            }
+        )
+        
+    if len(paper_ids) > 5:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "status_code": 400,
+                "error_code": "EXCESSIVE_PAPERS",
+                "message": "You can select a maximum of 5 papers for comparison."
+            }
+        )
+
+    # Fetch papers to ensure they exist and belong to the user
+    papers = db.query(models.Paper).filter(
+        models.Paper.id.in_(paper_ids),
+        models.Paper.user_id == current_session.user_id,
+        models.Paper.project_id == project_id
+    ).all()
+    
+    if len(papers) != len(paper_ids):
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "status_code": 404,
+                "error_code": "PAPERS_NOT_FOUND",
+                "message": "Some selected reference papers could not be found or do not belong to this project."
+            }
+        )
+
+    # Log audit entry
+    crud.create_audit_log(
+        db,
+        action="GENERATE_COMPARISON",
+        user_id=current_session.user_id,
+        session_id=current_session.id,
+        details=f"Generated paper comparison in project: {project.title} for papers: {', '.join(str(pid) for pid in paper_ids)}"
+    )
+
+    from app.services.comparison_service import compare_papers
+    comparison_report = compare_papers(papers)
+
+    # Save to database
+    db_comparison = crud.create_comparison(db, project_id, paper_ids, comparison_report)
+    
+    return {
+        "success": True,
+        "data": db_comparison,
+        "error_code": None,
+        "message": "Comparison report generated and saved successfully."
+    }
+
+
+@app.get("/api/projects/{project_id}/comparisons", response_model=schemas.ApiResponse[list[schemas.PaperComparisonResponse]], tags=["Paper Comparisons"])
+def get_project_comparisons(
+    project_id: int,
+    current_session: models.Session = Depends(get_current_session),
+    db: Session = Depends(get_db)
+):
+    # Verify project ownership
+    project = crud.get_project(db, project_id, current_session.user_id)
+    if not project:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "status_code": 404,
+                "error_code": "PROJECT_NOT_FOUND",
+                "message": "The project could not be found."
+            }
+        )
+        
+    comparisons = crud.get_project_comparisons(db, project_id)
+    return {
+        "success": True,
+        "data": comparisons,
+        "error_code": None,
+        "message": "Project comparisons retrieved successfully."
+    }
+
+
+@app.delete("/api/projects/{project_id}/comparisons/{comparison_id}", response_model=schemas.ApiResponse[dict], tags=["Paper Comparisons"])
+def delete_project_comparison(
+    project_id: int,
+    comparison_id: int,
+    current_session: models.Session = Depends(get_current_session),
+    db: Session = Depends(get_db)
+):
+    # Verify project ownership
+    project = crud.get_project(db, project_id, current_session.user_id)
+    if not project:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "status_code": 404,
+                "error_code": "PROJECT_NOT_FOUND",
+                "message": "The project could not be found."
+            }
+        )
+        
+    success = crud.delete_comparison(db, comparison_id, project_id)
+    if not success:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "status_code": 404,
+                "error_code": "COMPARISON_NOT_FOUND",
+                "message": "The comparison report could not be found."
+            }
+        )
+        
+    # Log audit entry
+    crud.create_audit_log(
+        db,
+        action="DELETE_COMPARISON",
+        user_id=current_session.user_id,
+        session_id=current_session.id,
+        details=f"Deleted comparison report ID: {comparison_id} in project: {project.title}"
+    )
+    
+    return {
+        "success": True,
+        "data": {"message": "Comparison report successfully deleted."},
+        "error_code": None,
+        "message": "Comparison report deleted successfully."
+    }
+
+
+@app.post("/api/projects/{project_id}/novelty", response_model=schemas.ApiResponse[schemas.NoveltyAnalysisResponse], tags=["Novelty Analysis"])
+def analyze_project_novelty(
+    project_id: int,
+    current_session: models.Session = Depends(get_current_session),
+    db: Session = Depends(get_db)
+):
+    # Verify project ownership
+    project = crud.get_project(db, project_id, current_session.user_id)
+    if not project:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "status_code": 404,
+                "error_code": "PROJECT_NOT_FOUND",
+                "message": "The project could not be found."
+            }
+        )
+        
+    if not project.draft_content or not project.draft_content.strip():
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "status_code": 400,
+                "error_code": "EMPTY_DRAFT",
+                "message": "Your thesis draft is empty. Please write some content in the editor before analyzing novelty."
+            }
+        )
+
+    # Fetch all papers in this project
+    papers = db.query(models.Paper).filter(
+        models.Paper.user_id == current_session.user_id,
+        models.Paper.project_id == project_id
+    ).all()
+
+    if not papers:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "status_code": 400,
+                "error_code": "NO_PAPERS",
+                "message": "You need at least one reference paper uploaded to this project to perform a novelty analysis."
+            }
+        )
+
+    # Log audit entry
+    crud.create_audit_log(
+        db,
+        action="ANALYZE_NOVELTY",
+        user_id=current_session.user_id,
+        session_id=current_session.id,
+        details=f"Analyzed novelty for project: {project.title} draft against {len(papers)} papers"
+    )
+
+    from app.services.novelty_service import analyze_novelty
+    report = analyze_novelty(project.draft_title, project.draft_content, papers)
+
+    paper_ids = [p.id for p in papers]
+
+    # Save to database
+    db_analysis = crud.create_novelty_analysis(db, project_id, paper_ids, report)
+    
+    return {
+        "success": True,
+        "data": db_analysis,
+        "error_code": None,
+        "message": "Novelty analysis completed and saved successfully."
+    }
+
+
+@app.get("/api/projects/{project_id}/novelty", response_model=schemas.ApiResponse[list[schemas.NoveltyAnalysisResponse]], tags=["Novelty Analysis"])
+def get_project_novelty_analyses(
+    project_id: int,
+    current_session: models.Session = Depends(get_current_session),
+    db: Session = Depends(get_db)
+):
+    # Verify project ownership
+    project = crud.get_project(db, project_id, current_session.user_id)
+    if not project:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "status_code": 404,
+                "error_code": "PROJECT_NOT_FOUND",
+                "message": "The project could not be found."
+            }
+        )
+        
+    analyses = crud.get_project_novelty_analyses(db, project_id)
+    return {
+        "success": True,
+        "data": analyses,
+        "error_code": None,
+        "message": "Project novelty analyses retrieved successfully."
+    }
+
+
+@app.delete("/api/projects/{project_id}/novelty/{analysis_id}", response_model=schemas.ApiResponse[dict], tags=["Novelty Analysis"])
+def delete_project_novelty_analysis(
+    project_id: int,
+    analysis_id: int,
+    current_session: models.Session = Depends(get_current_session),
+    db: Session = Depends(get_db)
+):
+    # Verify project ownership
+    project = crud.get_project(db, project_id, current_session.user_id)
+    if not project:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "status_code": 404,
+                "error_code": "PROJECT_NOT_FOUND",
+                "message": "The project could not be found."
+            }
+        )
+        
+    success = crud.delete_novelty_analysis(db, analysis_id, project_id)
+    if not success:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "status_code": 404,
+                "error_code": "NOVELTY_ANALYSIS_NOT_FOUND",
+                "message": "The novelty analysis report could not be found."
+            }
+        )
+        
+    # Log audit entry
+    crud.create_audit_log(
+        db,
+        action="DELETE_NOVELTY_ANALYSIS",
+        user_id=current_session.user_id,
+        session_id=current_session.id,
+        details=f"Deleted novelty analysis report ID: {analysis_id} in project: {project.title}"
+    )
+    
+    return {
+        "success": True,
+        "data": {"message": "Novelty analysis report successfully deleted."},
+        "error_code": None,
+        "message": "Novelty analysis report deleted successfully."
+    }
+
+
 @app.get("/api/papers/{paper_id}/file", tags=["Research Papers"])
 def get_paper_file(
     paper_id: int,

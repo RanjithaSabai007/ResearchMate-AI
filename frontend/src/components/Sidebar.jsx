@@ -39,7 +39,7 @@ export default function Sidebar({ isDark, toggleTheme, user, onSectionChange, ac
 
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'audit', label: 'Audit Logs & Sessions', icon: History },
+   // { id: 'audit', label: 'Audit Logs & Sessions', icon: History },
   ];
 
   return (

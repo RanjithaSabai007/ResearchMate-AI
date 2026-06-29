@@ -220,3 +220,63 @@ class ResetPasswordRequest(BaseModel):
     email: EmailStr
     otp: str
     new_password: str
+
+
+class PaperComparisonCreate(BaseModel):
+    paper_ids: List[int]
+
+
+class PaperComparisonResponse(BaseModel):
+    id: int
+    project_id: int
+    selected_papers: List[int]
+    comparison_report: dict
+    created_at: datetime
+
+    @model_validator(mode='before')
+    @classmethod
+    def parse_json_fields(cls, data):
+        if hasattr(data, "selected_papers"):
+            papers_val = getattr(data, "selected_papers")
+            report_val = getattr(data, "comparison_report")
+            
+            return {
+                "id": getattr(data, "id"),
+                "project_id": getattr(data, "project_id"),
+                "selected_papers": json.loads(papers_val) if isinstance(papers_val, str) else (papers_val or []),
+                "comparison_report": json.loads(report_val) if isinstance(report_val, str) else (report_val or {}),
+                "created_at": getattr(data, "created_at")
+            }
+        return data
+
+    class Config:
+        from_attributes = True
+
+
+class NoveltyAnalysisResponse(BaseModel):
+    id: int
+    project_id: int
+    draft_version: int
+    comparison_papers: List[int]
+    analysis_report: dict
+    created_at: datetime
+
+    @model_validator(mode='before')
+    @classmethod
+    def parse_json_fields(cls, data):
+        if hasattr(data, "comparison_papers"):
+            papers_val = getattr(data, "comparison_papers")
+            report_val = getattr(data, "analysis_report")
+            
+            return {
+                "id": getattr(data, "id"),
+                "project_id": getattr(data, "project_id"),
+                "draft_version": getattr(data, "draft_version"),
+                "comparison_papers": json.loads(papers_val) if isinstance(papers_val, str) else (papers_val or []),
+                "analysis_report": json.loads(report_val) if isinstance(report_val, str) else (report_val or {}),
+                "created_at": getattr(data, "created_at")
+            }
+        return data
+
+    class Config:
+        from_attributes = True

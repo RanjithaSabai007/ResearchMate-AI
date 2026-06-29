@@ -130,6 +130,35 @@ def run_migrations():
             """))
             conn.commit()
             print("Paper chat messages table check/creation completed.")
+
+            # 6. Ensure paper_comparisons table exists
+            print("Ensuring paper_comparisons table exists...")
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS paper_comparisons (
+                    id SERIAL PRIMARY KEY,
+                    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                    selected_papers TEXT NOT NULL,
+                    comparison_report TEXT NOT NULL,
+                    created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT (NOW() AT TIME ZONE 'UTC')
+                );
+            """))
+            conn.commit()
+            print("Paper comparisons table check/creation completed.")
+
+            # 7. Ensure novelty_analyses table exists
+            print("Ensuring novelty_analyses table exists...")
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS novelty_analyses (
+                    id SERIAL PRIMARY KEY,
+                    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                    draft_version INTEGER NOT NULL DEFAULT 1,
+                    comparison_papers TEXT NOT NULL,
+                    analysis_report TEXT NOT NULL,
+                    created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT (NOW() AT TIME ZONE 'UTC')
+                );
+            """))
+            conn.commit()
+            print("Novelty analyses table check/creation completed.")
     except Exception as e:
         print(f"Database auto-migration warning: {e}")
 

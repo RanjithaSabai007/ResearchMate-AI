@@ -103,6 +103,22 @@ export default function Dashboard() {
   const [tabChatHistory, setTabChatHistory] = useState([]);
   const [tabChatLoading, setTabChatLoading] = useState(false);
 
+  // Multi-Paper Comparison Engine state
+  const [selectedPaperIds, setSelectedPaperIds] = useState([]);
+  const [comparisons, setComparisons] = useState([]);
+  const [activeComparison, setActiveComparison] = useState(null);
+  const [generatingComparison, setGeneratingComparison] = useState(false);
+  const [comparisonMessage, setComparisonMessage] = useState('');
+  const [loadingComparisons, setLoadingComparisons] = useState(false);
+
+  // Research Novelty Analyzer state
+  const [noveltyReports, setNoveltyReports] = useState([]);
+  const [activeNoveltyReport, setActiveNoveltyReport] = useState(null);
+  const [analyzingNovelty, setAnalyzingNovelty] = useState(false);
+  const [noveltyMessage, setNoveltyMessage] = useState('');
+  const [showNoveltyModal, setShowNoveltyModal] = useState(false);
+  const [loadingNoveltyHistory, setLoadingNoveltyHistory] = useState(false);
+
   // Audit and sessions state
   const [sessionsCount, setSessionsCount] = useState(1);
   const [auditLogs, setAuditLogs] = useState([]);
@@ -248,6 +264,10 @@ export default function Dashboard() {
   const handleSelectProject = async (project) => {
     setSelectedProject(project);
     setWorkspaceTab('editor');
+    setSelectedPaperIds([]);
+    setActiveComparison(null);
+    setNoveltyReports([]);
+    setActiveNoveltyReport(null);
     // Load fresh project details (including papers)
     try {
       const response = await api.get(`/api/projects/${project.id}`);
@@ -257,6 +277,12 @@ export default function Dashboard() {
       setDraftTitle(projectDetails.draft_title || 'Untitled Draft');
       setDraftContent(projectDetails.draft_content || '');
       
+      // Load comparisons history
+      fetchComparisons(projectDetails.id);
+
+      // Load novelty history
+      fetchNoveltyReports(projectDetails.id);
+
       // Select the first paper by default for the tab chat if papers exist
       if (projectDetails.papers && projectDetails.papers.length > 0) {
         const firstPaper = projectDetails.papers[0];
@@ -277,6 +303,175 @@ export default function Dashboard() {
       }
     } catch (err) {
       console.error("Failed to load project details:", err);
+    }
+  };
+
+  // --- Multi-Paper Comparison Engine Operations ---
+
+  const fetchComparisons = async (projectId) => {
+    setLoadingComparisons(true);
+    try {
+      const response = await api.get(`/api/projects/${projectId}/comparisons`);
+      setComparisons(response.data);
+      if (response.data && response.data.length > 0) {
+        // Load the most recent comparison automatically
+        setActiveComparison(response.data[0]);
+      } else {
+        setActiveComparison(null);
+      }
+    } catch (err) {
+      console.error("Failed to load comparisons:", err);
+    } finally {
+      setLoadingComparisons(false);
+    }
+  };
+
+  const handleTogglePaperSelect = (paperId, e) => {
+    e.stopPropagation();
+    setSelectedPaperIds(prev => {
+      if (prev.includes(paperId)) {
+        return prev.filter(id => id !== paperId);
+      } else {
+        return [...prev, paperId];
+      }
+    });
+  };
+
+  const handleGenerateComparison = async () => {
+    if (selectedPaperIds.length < 2) return;
+    setWorkspaceTab('comparison');
+    setGeneratingComparison(true);
+    
+    // Animate stage messages
+    const stages = [
+      "Compiling paper metadata and author profiles...",
+      "Reading abstracts and summaries...",
+      "Analyzing similarities and overlaps...",
+      "Synthesizing methodology differences...",
+      "Structuring dataset and algorithm profiles...",
+      "Generating peer reviewer recommendations...",
+      "Finalizing multi-paper report formatting..."
+    ];
+    
+    let stageIdx = 0;
+    setComparisonMessage(stages[0]);
+    const msgInterval = setInterval(() => {
+      stageIdx = (stageIdx + 1) % stages.length;
+      setComparisonMessage(stages[stageIdx]);
+    }, 4500);
+
+    try {
+      const response = await api.post(`/api/projects/${selectedProject.id}/comparisons`, {
+        paper_ids: selectedPaperIds
+      });
+      
+      const newComp = response.data;
+      setComparisons(prev => [newComp, ...prev]);
+      setActiveComparison(newComp);
+      setSelectedPaperIds([]); // Clear selection
+    } catch (err) {
+      console.error("Failed to generate comparison:", err);
+      alert("Comparison failed: " + (err.response?.data?.message || err.message));
+    } finally {
+      clearInterval(msgInterval);
+      setGeneratingComparison(false);
+    }
+  };
+
+  const handleDeleteComparison = async (comparisonId, e) => {
+    e.stopPropagation();
+    if (!window.confirm("Are you sure you want to delete this comparison report?")) return;
+    try {
+      await api.delete(`/api/projects/${selectedProject.id}/comparisons/${comparisonId}`);
+      setComparisons(prev => prev.filter(c => c.id !== comparisonId));
+      if (activeComparison?.id === comparisonId) {
+        setActiveComparison(null);
+      }
+    } catch (err) {
+      console.error("Failed to delete comparison:", err);
+    }
+  };
+
+  // --- Research Novelty Analyzer Operations ---
+
+  const fetchNoveltyReports = async (projectId) => {
+    setLoadingNoveltyHistory(true);
+    try {
+      const response = await api.get(`/api/projects/${projectId}/novelty`);
+      setNoveltyReports(response.data);
+      if (response.data && response.data.length > 0) {
+        setActiveNoveltyReport(response.data[0]);
+      } else {
+        setActiveNoveltyReport(null);
+      }
+    } catch (err) {
+      console.error("Failed to load novelty reports:", err);
+    } finally {
+      setLoadingNoveltyHistory(false);
+    }
+  };
+
+  const handleAnalyzeNovelty = async () => {
+    if (!selectedProject) return;
+    
+    // First, save the current draft content to database before running analysis
+    setSaveStatus('saving');
+    try {
+      await api.put(`/api/projects/${selectedProject.id}/draft`, {
+        draft_title: draftTitle,
+        draft_content: draftContent
+      });
+      setSaveStatus('saved');
+    } catch (err) {
+      console.error("Failed to auto-save before novelty analysis:", err);
+      setSaveStatus('error');
+    }
+
+    setShowNoveltyModal(true);
+    setAnalyzingNovelty(true);
+    
+    const stages = [
+      "Reading current thesis draft content...",
+      "Analyzing reference papers and domain contexts...",
+      "Identifying overlapping research themes...",
+      "Detecting unique contributions and methodologies...",
+      "Evaluating gap alignment and citation nominations...",
+      "Formulating thesis improvement recommendations..."
+    ];
+    
+    let stageIdx = 0;
+    setNoveltyMessage(stages[0]);
+    const msgInterval = setInterval(() => {
+      stageIdx = (stageIdx + 1) % stages.length;
+      setNoveltyMessage(stages[stageIdx]);
+    }, 4500);
+
+    try {
+      const response = await api.post(`/api/projects/${selectedProject.id}/novelty`);
+      const newReport = response.data;
+      setNoveltyReports(prev => [newReport, ...prev]);
+      setActiveNoveltyReport(newReport);
+    } catch (err) {
+      console.error("Failed to analyze novelty:", err);
+      alert("Novelty Analysis failed: " + (err.response?.data?.message || err.message));
+      setShowNoveltyModal(false);
+    } finally {
+      clearInterval(msgInterval);
+      setAnalyzingNovelty(false);
+    }
+  };
+
+  const handleDeleteNoveltyReport = async (reportId, e) => {
+    e.stopPropagation();
+    if (!window.confirm("Are you sure you want to delete this novelty analysis report?")) return;
+    try {
+      await api.delete(`/api/projects/${selectedProject.id}/novelty/${reportId}`);
+      setNoveltyReports(prev => prev.filter(r => r.id !== reportId));
+      if (activeNoveltyReport?.id === reportId) {
+        setActiveNoveltyReport(null);
+      }
+    } catch (err) {
+      console.error("Failed to delete novelty report:", err);
     }
   };
 
@@ -720,7 +915,7 @@ export default function Dashboard() {
                       </div>
                     </div>
 
-                    <div className="p-6 rounded-3xl gradient-card-border shadow-sm bg-white dark:bg-pastel-darkCard">
+                  {/*  <div className="p-6 rounded-3xl gradient-card-border shadow-sm bg-white dark:bg-pastel-darkCard">
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Active Sessions</p>
@@ -730,7 +925,7 @@ export default function Dashboard() {
                           <Users className="w-6 h-6" />
                         </div>
                       </div>
-                    </div>
+                    </div> */}
                   </div>
 
                   {/* Projects Grid */}
@@ -894,6 +1089,17 @@ export default function Dashboard() {
                           <MessageSquare className="w-4 h-4" />
                           <span>AI Chat</span>
                         </button>
+                        <button
+                          onClick={() => setWorkspaceTab('comparison')}
+                          className={`flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all ${
+                            workspaceTab === 'comparison'
+                              ? 'bg-pastel-accent text-white shadow-sm'
+                              : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-200'
+                          }`}
+                        >
+                          <Sparkles className="w-4 h-4" />
+                          <span>Comparison Engine</span>
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -1008,19 +1214,30 @@ export default function Dashboard() {
                             </button>
                           </div>
 
-                          {/* Action manual saves */}
-                          <button
-                            onClick={handleSaveDraft}
-                            disabled={saveStatus === 'saved' || saveStatus === 'saving'}
-                            className={`flex items-center space-x-1 px-4 py-2 text-xs font-bold rounded-xl transition-all shadow-sm ${
-                              saveStatus === 'saved' || saveStatus === 'saving'
-                                ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 cursor-not-allowed'
-                                : 'bg-pastel-accent hover:bg-pastel-accent/90 text-white hover-scale'
-                            }`}
-                          >
-                            <Save className="w-3.5 h-3.5" />
-                            <span>Save Draft</span>
-                          </button>
+                          {/* Action manual saves & novelty analysis */}
+                          <div className="flex items-center space-x-2">
+                            <button
+                              type="button"
+                              onClick={handleAnalyzeNovelty}
+                              className="flex items-center space-x-1.5 px-4 py-2 text-xs font-bold rounded-xl transition-all shadow-sm bg-gradient-to-r from-pastel-pink to-pastel-accent text-white hover-scale"
+                              title="Analyze the novelty of this draft against reference papers"
+                            >
+                              <Sparkles className="w-3.5 h-3.5 text-white animate-pulse" />
+                              <span>Analyze Novelty</span>
+                            </button>
+                            <button
+                              onClick={handleSaveDraft}
+                              disabled={saveStatus === 'saved' || saveStatus === 'saving'}
+                              className={`flex items-center space-x-1 px-4 py-2 text-xs font-bold rounded-xl transition-all shadow-sm ${
+                                saveStatus === 'saved' || saveStatus === 'saving'
+                                  ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 cursor-not-allowed'
+                                  : 'bg-pastel-accent hover:bg-pastel-accent/90 text-white hover-scale'
+                              }`}
+                            >
+                              <Save className="w-3.5 h-3.5" />
+                              <span>Save Draft</span>
+                            </button>
+                          </div>
                         </div>
 
                         {/* Editor Canvas Area */}
@@ -1311,6 +1528,42 @@ export default function Dashboard() {
                                 <Search className="w-5 h-5 text-gray-400 absolute left-4 top-3.5" />
                               </div>
 
+                              {selectedPaperIds.length > 0 && (
+                                <div className="mb-4 p-4 rounded-2xl bg-pastel-accent/10 border border-pastel-accent/20 flex flex-col sm:flex-row items-center justify-between gap-3 animate-fade-in">
+                                  <div className="flex items-center space-x-2 text-xs font-bold text-pastel-accent uppercase tracking-wider">
+                                    <Sparkles className="w-4 h-4 text-pastel-accent animate-pulse" />
+                                    <span>{selectedPaperIds.length} paper(s) selected</span>
+                                    {selectedPaperIds.length > 5 && (
+                                      <span className="text-[10px] text-red-500 font-extrabold normal-case leading-none ml-2 bg-red-100 px-2 py-0.5 rounded-md border border-red-200">Max 5 allowed</span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center space-x-2 w-full sm:w-auto justify-end">
+                                    <button
+                                      type="button"
+                                      onClick={() => setSelectedPaperIds([])}
+                                      className={`px-3 py-1.5 text-[10px] font-bold rounded-xl transition-all ${
+                                        isDark ? 'text-gray-400 hover:text-white bg-slate-800' : 'text-gray-500 hover:text-gray-700 bg-gray-100'
+                                      }`}
+                                    >
+                                      Clear
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={handleGenerateComparison}
+                                      disabled={selectedPaperIds.length < 2 || selectedPaperIds.length > 5}
+                                      className={`px-4 py-2 text-xs font-bold rounded-xl flex items-center justify-center space-x-1.5 transition-all hover-scale shadow-sm ${
+                                        selectedPaperIds.length < 2 || selectedPaperIds.length > 5
+                                          ? 'bg-gray-300 text-gray-500 cursor-not-allowed border border-gray-400/20'
+                                          : 'bg-gradient-to-r from-pastel-pink to-pastel-accent text-white'
+                                      }`}
+                                    >
+                                      <Sparkles className="w-3.5 h-3.5" />
+                                      <span>Compare Selected Papers</span>
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+
                               <p className="text-xs text-gray-400 mb-3 font-bold uppercase tracking-wider">
                                 Showing {filteredPapers.length} of {papers.length} reference paper(s)
                               </p>
@@ -1328,18 +1581,27 @@ export default function Dashboard() {
                                       key={paper.id} 
                                       onClick={() => handleSelectPaper(paper)}
                                       className={`p-5 rounded-2xl border transition-all hover:shadow-md cursor-pointer hover-scale flex flex-col justify-between ${
-                                        isDark 
-                                          ? 'bg-gradient-to-br from-slate-900 to-indigo-950/20 border-pastel-darkBorder hover:border-pastel-accent/40 text-gray-200' 
-                                          : 'bg-gradient-to-br from-white to-slate-50 border-gray-100 hover:border-pastel-pink/50 text-gray-800'
+                                        selectedPaperIds.includes(paper.id)
+                                          ? (isDark ? 'bg-gradient-to-br from-slate-900 to-pastel-accent/15 border-pastel-accent text-gray-200 shadow-sm' : 'bg-gradient-to-br from-white to-pastel-accent/10 border-pastel-accent text-gray-800 shadow-sm')
+                                          : (isDark ? 'bg-gradient-to-br from-slate-900 to-indigo-950/20 border-pastel-darkBorder hover:border-pastel-accent/40 text-gray-200' : 'bg-gradient-to-br from-white to-slate-50 border-gray-100 hover:border-pastel-pink/50 text-gray-800')
                                       }`}
                                     >
                                       <div>
                                         <div className="flex items-start justify-between">
-                                          <div className="space-y-1">
-                                            <h3 className="font-bold text-sm text-pastel-accent leading-snug">{paper.title}</h3>
-                                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                                              {paper.author} &bull; {paper.domain}
-                                            </p>
+                                          <div className="flex items-start space-x-3 flex-1 mr-2">
+                                            <input
+                                              type="checkbox"
+                                              checked={selectedPaperIds.includes(paper.id)}
+                                              onChange={(e) => handleTogglePaperSelect(paper.id, e)}
+                                              onClick={(e) => e.stopPropagation()}
+                                              className="mt-1 h-6 w-6 rounded border-gray-300 text-pastel-accent focus:ring-pastel-accent cursor-pointer"
+                                            />
+                                            <div className="space-y-1">
+                                              <h3 className="font-bold text-sm text-pastel-accent leading-snug">{paper.title}</h3>
+                                              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                                                {paper.author} &bull; {paper.domain}
+                                              </p>
+                                            </div>
                                           </div>
                                           <button
                                             onClick={(e) => handleDeletePaper(paper.id, e)}
@@ -1537,6 +1799,431 @@ export default function Dashboard() {
                                 Ask AI
                               </button>
                             </form>
+
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* PANEL 4: COMPARISON ENGINE WORKSPACE */}
+                    {workspaceTab === 'comparison' && (
+                      <div className="h-full p-6 flex flex-col overflow-hidden">
+                        <div className="max-w-7xl mx-auto w-full flex-1 flex flex-col lg:flex-row gap-6 overflow-hidden">
+                          
+                          {/* Left Column: Comparisons History Sidebar */}
+                          <div className="w-full lg:w-80 flex flex-col p-5 rounded-3xl border bg-white dark:bg-pastel-darkCard dark:border-pastel-darkBorder shadow-sm flex-shrink-0">
+                            <h3 className="font-extrabold text-sm text-pastel-accent mb-1 uppercase tracking-wider flex items-center space-x-2">
+                              <Sparkles className="w-4 h-4 text-pastel-accent" />
+                              <span>Comparison History</span>
+                            </h3>
+                            <p className="text-[11px] text-gray-400 leading-relaxed mb-4">
+                              Access previous AI comparison reports. Comparisons are generated across multiple reference papers in this project.
+                            </p>
+
+                            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+                              {loadingComparisons ? (
+                                <div className="p-4 text-center text-xs text-gray-400">
+                                  <Loader2 className="w-4 h-4 animate-spin mx-auto mb-2 text-pastel-accent" />
+                                  <span>Loading history...</span>
+                                </div>
+                              ) : comparisons.length === 0 ? (
+                                <div className="p-6 text-center text-xs text-gray-400 border border-dashed border-gray-200 dark:border-pastel-darkBorder rounded-2xl">
+                                  <Sparkles className="w-8 h-8 opacity-25 mx-auto mb-2 text-pastel-accent" />
+                                  <p className="font-semibold">No reports generated</p>
+                                  <p className="text-[10px] text-gray-400 mt-0.5">Select papers in the References tab to start.</p>
+                                </div>
+                              ) : (
+                                comparisons.map((comp) => {
+                                  // Get list of paper titles in this comparison
+                                  const compPapers = papers.filter(p => comp.selected_papers.includes(p.id));
+                                  const titlesStr = compPapers.map(p => p.title).join(", ");
+                                  const isActive = activeComparison?.id === comp.id;
+
+                                  return (
+                                    <div
+                                      key={comp.id}
+                                      onClick={() => {
+                                        if (!generatingComparison) {
+                                          setActiveComparison(comp);
+                                        }
+                                      }}
+                                      className={`p-3.5 rounded-2xl border transition-all cursor-pointer text-left flex flex-col justify-between hover-scale ${
+                                        isActive
+                                          ? 'border-pastel-accent bg-pastel-accent/10'
+                                          : isDark
+                                            ? 'bg-slate-900 border-pastel-darkBorder hover:border-pastel-accent/30'
+                                            : 'bg-slate-50/50 border-gray-150 hover:border-pastel-pink/40'
+                                      }`}
+                                    >
+                                      <div className="space-y-1">
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-[9px] font-bold uppercase text-gray-400 font-mono">
+                                            {new Date(comp.created_at).toLocaleDateString()} &bull; {compPapers.length} papers
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => handleDeleteComparison(comp.id, e)}
+                                            className="p-1 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors"
+                                          >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                          </button>
+                                        </div>
+                                        <p className="font-bold text-xs text-pastel-accent line-clamp-2 leading-snug">
+                                          {titlesStr || "Compared Papers"}
+                                        </p>
+                                      </div>
+                                    </div>
+                                  );
+                                })
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Right Column: Comparison Report Display */}
+                          <div className="flex-1 flex flex-col p-6 rounded-3xl border bg-white dark:bg-pastel-darkCard dark:border-pastel-darkBorder shadow-sm overflow-hidden h-[600px] lg:h-auto">
+                            
+                            {generatingComparison ? (
+                              <div className="h-full flex flex-col items-center justify-center text-center p-8 space-y-4 animate-pulse">
+                                <Loader2 className="w-12 h-12 animate-spin text-pastel-accent" />
+                                <div>
+                                  <p className="font-bold text-sm text-gray-700 dark:text-gray-300">Evaluating Reference Matrix</p>
+                                  <p className="text-xs text-pastel-accent font-semibold mt-1 animate-pulse">
+                                    {comparisonMessage}
+                                  </p>
+                                  <p className="text-[10px] text-gray-400 mt-2 max-w-xs mx-auto">
+                                    Ollama is synthesizing your reference material. This takes 15–30 seconds. Please do not close this workspace.
+                                  </p>
+                                </div>
+                              </div>
+                            ) : !activeComparison ? (
+                              <div className="h-full flex flex-col items-center justify-center text-center text-gray-400 p-8">
+                                <Sparkles className="w-16 h-16 mb-4 text-pastel-accent opacity-30" />
+                                <h4 className="font-bold text-sm text-gray-500 dark:text-gray-300">Generate Multi-Paper Comparison</h4>
+                                <p className="text-xs text-gray-450 mt-1.5 max-w-md leading-relaxed">
+                                  Select **2 to 5 reference papers** using checkboxes in the **References** tab, then click **Compare Selected Papers** to generate a structured synthesis report here.
+                                </p>
+                              </div>
+                            ) : (
+                              <div className="h-full flex flex-col overflow-hidden">
+                                
+                                {/* Jump List Navigation Header */}
+                                <div className={`flex-shrink-0 p-3 rounded-2xl border mb-4 flex items-center justify-between gap-3 ${
+                                  isDark ? 'bg-slate-900 border-pastel-darkBorder' : 'bg-slate-50 border-gray-150'
+                                }`}>
+                                  <div className="flex items-center space-x-2">
+                                    <Sparkles className="w-4 h-4 text-pastel-accent animate-pulse" />
+                                    <span className="text-xs font-bold uppercase tracking-wider text-pastel-accent">
+                                      Comparative Review Matrix ({activeComparison.selected_papers.length} Papers)
+                                    </span>
+                                  </div>
+                                  <span className="text-[10px] text-gray-400 font-bold">
+                                    Generated: {new Date(activeComparison.created_at).toLocaleString()}
+                                  </span>
+                                </div>
+
+                                {/* Report View Content - Scrollable */}
+                                <div className="flex-1 overflow-y-auto space-y-6 pr-2 text-left">
+                                  
+                                  {/* 1. Overview */}
+                                  {activeComparison.comparison_report?.overview && (
+                                    <div className={`p-5 rounded-2xl border ${
+                                      isDark ? 'bg-slate-900/50 border-pastel-darkBorder' : 'bg-gradient-to-br from-indigo-50/20 to-pastel-pink/10 border-gray-100'
+                                    }`}>
+                                      <h4 className="text-xs font-black uppercase tracking-wider text-pastel-accent mb-3 flex items-center space-x-1">
+                                        <span>1. Matrix Overview</span>
+                                      </h4>
+                                      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                                        <div className="p-3 bg-white dark:bg-pastel-darkCard rounded-xl border border-gray-100 dark:border-slate-800 text-center">
+                                          <p className="text-[9px] uppercase tracking-wider font-extrabold text-gray-400">Papers Count</p>
+                                          <p className="text-lg font-black text-pastel-accent">{activeComparison.comparison_report.overview.num_papers}</p>
+                                        </div>
+                                        <div className="p-3 bg-white dark:bg-pastel-darkCard rounded-xl border border-gray-100 dark:border-slate-800 text-center">
+                                          <p className="text-[9px] uppercase tracking-wider font-extrabold text-gray-400">Timeline Scope</p>
+                                          <p className="text-xs font-bold text-gray-600 dark:text-gray-200 mt-1 truncate">{activeComparison.comparison_report.overview.timeline}</p>
+                                        </div>
+                                        <div className="p-3 bg-white dark:bg-pastel-darkCard rounded-xl border border-gray-100 dark:border-slate-800 text-center md:col-span-2">
+                                          <p className="text-[9px] uppercase tracking-wider font-extrabold text-gray-400">Research Domain</p>
+                                          <p className="text-xs font-bold text-gray-600 dark:text-gray-200 mt-1 truncate">{activeComparison.comparison_report.overview.domain}</p>
+                                        </div>
+                                      </div>
+                                      <div className="space-y-2 text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+                                        <p><span className="font-bold text-gray-600 dark:text-gray-300">Common objective:</span> {activeComparison.comparison_report.overview.common_objective}</p>
+                                        <p><span className="font-bold text-gray-600 dark:text-gray-300">Overall research trend:</span> {activeComparison.comparison_report.overview.overall_trend}</p>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* 2. Paper Summary Table */}
+                                  {activeComparison.comparison_report?.paper_table && (
+                                    <div className="space-y-3">
+                                      <h4 className="text-xs font-black uppercase tracking-wider text-pastel-accent flex items-center space-x-1">
+                                        <span>2. Paper Summary Grid</span>
+                                      </h4>
+                                      <div className="overflow-x-auto rounded-2xl border border-gray-100 dark:border-pastel-darkBorder">
+                                        <table className="w-full border-collapse text-left text-xs">
+                                          <thead>
+                                            <tr className={`border-b font-extrabold uppercase text-[9px] tracking-wider text-gray-400 ${
+                                              isDark ? 'bg-slate-900 border-pastel-darkBorder' : 'bg-slate-50 border-gray-100'
+                                            }`}>
+                                              <th className="p-3">Title</th>
+                                              <th className="p-3">Year</th>
+                                              <th className="p-3">Objective</th>
+                                              <th className="p-3">Methodology</th>
+                                              <th className="p-3">Dataset</th>
+                                              <th className="p-3">Algorithm</th>
+                                              <th className="p-3 text-center">Score</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody className="divide-y divide-gray-100 dark:divide-pastel-darkBorder text-gray-500 dark:text-gray-400 leading-normal">
+                                            {activeComparison.comparison_report.paper_table.map((row, i) => (
+                                              <tr key={i} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/10">
+                                                <td className="p-3 font-bold text-pastel-accent min-w-[150px]">{row.title}</td>
+                                                <td className="p-3 font-mono font-bold">{row.year}</td>
+                                                <td className="p-3 min-w-[150px]">{row.objective}</td>
+                                                <td className="p-3 min-w-[120px]">{row.methodology}</td>
+                                                <td className="p-3 min-w-[100px]">{row.dataset}</td>
+                                                <td className="p-3 min-w-[100px]">{row.algorithm}</td>
+                                                <td className="p-3 text-center font-bold">
+                                                  <span className="px-2 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400 font-black">
+                                                    {row.score}%
+                                                  </span>
+                                                </td>
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* 3. Similarities & 4. Differences */}
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                    {/* Similarities */}
+                                    {activeComparison.comparison_report?.similarities && (
+                                      <div className={`p-4 rounded-2xl border ${
+                                        isDark ? 'bg-slate-900/40 border-pastel-darkBorder' : 'bg-emerald-50/10 border-emerald-100'
+                                      }`}>
+                                        <h4 className="text-xs font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 mb-3">
+                                          3. Similarities
+                                        </h4>
+                                        <ul className="space-y-2.5">
+                                          {activeComparison.comparison_report.similarities.map((item, i) => (
+                                            <li key={i} className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed flex items-start space-x-2">
+                                              <span className="text-emerald-500 font-bold mt-0.5">&bull;</span>
+                                              <span>{item}</span>
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+
+                                    {/* Differences */}
+                                    {activeComparison.comparison_report?.differences && (
+                                      <div className={`p-4 rounded-2xl border ${
+                                        isDark ? 'bg-slate-900/40 border-pastel-darkBorder' : 'bg-rose-50/10 border-rose-100'
+                                      }`}>
+                                        <h4 className="text-xs font-black uppercase tracking-wider text-rose-600 dark:text-rose-400 mb-3">
+                                          4. Differences
+                                        </h4>
+                                        <ul className="space-y-2.5">
+                                          {activeComparison.comparison_report.differences.map((item, i) => (
+                                            <li key={i} className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed flex items-start space-x-2">
+                                              <span className="text-rose-500 font-bold mt-0.5">&bull;</span>
+                                              <span>{item}</span>
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* 5. Methodology Comparison */}
+                                  {activeComparison.comparison_report?.methodology_comparison && (
+                                    <div className={`p-5 rounded-2xl border ${
+                                      isDark ? 'bg-slate-900/50 border-pastel-darkBorder' : 'bg-slate-50 border-gray-150'
+                                    }`}>
+                                      <h4 className="text-xs font-black uppercase tracking-wider text-pastel-accent mb-3">
+                                        5. Methodology Comparison
+                                      </h4>
+                                      <div className="space-y-3.5 text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+                                        <div>
+                                          <p className="font-extrabold uppercase text-[9px] tracking-wider text-gray-400 mb-0.5">Strongest Methodology</p>
+                                          <p className="font-medium text-gray-700 dark:text-gray-200">{activeComparison.comparison_report.methodology_comparison.strongest_methodology}</p>
+                                        </div>
+                                        <div>
+                                          <p className="font-extrabold uppercase text-[9px] tracking-wider text-gray-400 mb-0.5">Most Practical for Replication</p>
+                                          <p className="font-medium text-gray-700 dark:text-gray-200">{activeComparison.comparison_report.methodology_comparison.most_practical}</p>
+                                        </div>
+                                        <div>
+                                          <p className="font-extrabold uppercase text-[9px] tracking-wider text-gray-400 mb-0.5">Common Methodological Limitations</p>
+                                          <p className="font-medium text-gray-700 dark:text-gray-200">{activeComparison.comparison_report.methodology_comparison.common_limitations}</p>
+                                        </div>
+                                        <div className="pt-2 border-t border-gray-200/50 dark:border-slate-800">
+                                          <p className="font-extrabold uppercase text-[9px] tracking-wider text-pastel-accent mb-0.5">Thesis Guidance</p>
+                                          <p className="font-medium text-gray-700 dark:text-gray-200">{activeComparison.comparison_report.methodology_comparison.suitability_guidance}</p>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* 6. Dataset Comparison & 7. Algorithm Comparison */}
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                    
+                                    {/* Dataset Comparison */}
+                                    {activeComparison.comparison_report?.dataset_comparison && (
+                                      <div className="p-4 rounded-2xl border border-gray-150 dark:border-pastel-darkBorder space-y-3">
+                                        <h4 className="text-xs font-black uppercase tracking-wider text-pastel-accent">
+                                          6. Dataset Comparison
+                                        </h4>
+                                        <div className="flex flex-wrap gap-1.5">
+                                          {activeComparison.comparison_report.dataset_comparison.datasets_used.map((ds, i) => (
+                                            <span key={i} className="px-2 py-0.5 rounded-md text-[9px] font-bold bg-pastel-pink/20 text-pastel-pink">
+                                              {ds}
+                                            </span>
+                                          ))}
+                                        </div>
+                                        <div className="space-y-2 text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+                                          <p><span className="font-extrabold text-[9px] uppercase tracking-wider text-gray-400 block">Frequent Dataset:</span> {activeComparison.comparison_report.dataset_comparison.most_frequent_dataset}</p>
+                                          <p><span className="font-extrabold text-[9px] uppercase tracking-wider text-gray-400 block">Dataset Sizes/Scope:</span> {activeComparison.comparison_report.dataset_comparison.dataset_sizes}</p>
+                                          <p><span className="font-extrabold text-[9px] uppercase tracking-wider text-gray-400 block">Advantages:</span> {activeComparison.comparison_report.dataset_comparison.advantages}</p>
+                                          <p><span className="font-extrabold text-[9px] uppercase tracking-wider text-rose-400 block">Limitations:</span> {activeComparison.comparison_report.dataset_comparison.limitations}</p>
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* Algorithm Comparison */}
+                                    {activeComparison.comparison_report?.algorithm_comparison && (
+                                      <div className="p-4 rounded-2xl border border-gray-150 dark:border-pastel-darkBorder space-y-3">
+                                        <h4 className="text-xs font-black uppercase tracking-wider text-pastel-accent">
+                                          7. Algorithm Comparison
+                                        </h4>
+                                        <div className="flex flex-wrap gap-1.5">
+                                          {activeComparison.comparison_report.algorithm_comparison.algorithms.map((alg, i) => (
+                                            <span key={i} className="px-2 py-0.5 rounded-md text-[9px] font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                                              {alg}
+                                            </span>
+                                          ))}
+                                        </div>
+                                        <div className="space-y-2 text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+                                          <p><span className="font-extrabold text-[9px] uppercase tracking-wider text-gray-400 block">Architectures:</span> {activeComparison.comparison_report.algorithm_comparison.architectures}</p>
+                                          <p><span className="font-extrabold text-[9px] uppercase tracking-wider text-gray-400 block">Advantages:</span> {activeComparison.comparison_report.algorithm_comparison.advantages}</p>
+                                          <p><span className="font-extrabold text-[9px] uppercase tracking-wider text-rose-400 block">Disadvantages:</span> {activeComparison.comparison_report.algorithm_comparison.disadvantages}</p>
+                                          <p><span className="font-extrabold text-[9px] uppercase tracking-wider text-gray-400 block">Computational Complexity:</span> {activeComparison.comparison_report.algorithm_comparison.complexity}</p>
+                                          <p><span className="font-extrabold text-[9px] uppercase tracking-wider text-pastel-accent block">Suitability:</span> {activeComparison.comparison_report.algorithm_comparison.suitability}</p>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* 8. Strengths & 9. Common Limitations (Gaps) */}
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                    {/* Strengths */}
+                                    {activeComparison.comparison_report?.strengths_across_papers && (
+                                      <div className={`p-4 rounded-2xl border ${
+                                        isDark ? 'bg-slate-900/40 border-pastel-darkBorder' : 'bg-emerald-50/10 border-emerald-100'
+                                      }`}>
+                                        <h4 className="text-xs font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 mb-3 flex items-center space-x-1.5">
+                                          <Check className="w-4.5 h-4.5 text-emerald-600" />
+                                          <span>8. Collective Strengths</span>
+                                        </h4>
+                                        <ul className="space-y-2">
+                                          {activeComparison.comparison_report.strengths_across_papers.map((item, i) => (
+                                            <li key={i} className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed flex items-start space-x-2">
+                                              <span className="text-emerald-500 font-extrabold font-mono mt-0.5">✓</span>
+                                              <span>{item}</span>
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+
+                                    {/* Common Limitations / Research Gaps */}
+                                    {activeComparison.comparison_report?.common_limitations && (
+                                      <div className={`p-4 rounded-2xl border ${
+                                        isDark ? 'bg-slate-900/40 border-pastel-darkBorder' : 'bg-amber-500/5 border-amber-500/10'
+                                      }`}>
+                                        <h4 className="text-xs font-black uppercase tracking-wider text-amber-600 dark:text-amber-500 mb-3 flex items-center space-x-1.5">
+                                          <AlertTriangle className="w-4.5 h-4.5 text-amber-500" />
+                                          <span>9. Research Gaps / Limitations</span>
+                                        </h4>
+                                        <ul className="space-y-2">
+                                          {activeComparison.comparison_report.common_limitations.map((item, i) => (
+                                            <li key={i} className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed flex items-start space-x-2">
+                                              <span className="text-amber-500 font-bold mt-0.5">⚠️</span>
+                                              <span>{item}</span>
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* 10. Research Trends & 11. Future Opportunities */}
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                    {/* Trends */}
+                                    {activeComparison.comparison_report?.research_trends && (
+                                      <div className="p-4 rounded-2xl border border-gray-150 dark:border-pastel-darkBorder">
+                                        <h4 className="text-xs font-black uppercase tracking-wider text-pastel-accent mb-3 flex items-center space-x-1.5">
+                                          <Clock className="w-4.5 h-4.5 text-pastel-accent" />
+                                          <span>10. Paradigm Trends</span>
+                                        </h4>
+                                        <ul className="space-y-2.5">
+                                          {activeComparison.comparison_report.research_trends.map((item, i) => (
+                                            <li key={i} className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed flex items-start space-x-2">
+                                              <span className="text-pastel-accent font-bold mt-0.5">&bull;</span>
+                                              <span>{item}</span>
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+
+                                    {/* Future Opportunities */}
+                                    {activeComparison.comparison_report?.future_opportunities && (
+                                      <div className="p-4 rounded-2xl border border-gray-150 dark:border-pastel-darkBorder">
+                                        <h4 className="text-xs font-black uppercase tracking-wider text-pastel-accent mb-3 flex items-center space-x-1.5">
+                                          <Sparkles className="w-4.5 h-4.5 text-pastel-accent animate-pulse" />
+                                          <span>11. Future Thesis Opportunities</span>
+                                        </h4>
+                                        <ul className="space-y-2.5">
+                                          {activeComparison.comparison_report.future_opportunities.map((item, i) => (
+                                            <li key={i} className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed flex items-start space-x-2">
+                                              <span className="text-pastel-accent font-bold mt-0.5">&bull;</span>
+                                              <span>{item}</span>
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* 12. Recommendation */}
+                                  {activeComparison.comparison_report?.recommendations && (
+                                    <div className={`p-5 rounded-2xl border ${
+                                      isDark ? 'bg-slate-900 border-pastel-darkBorder' : 'bg-gradient-to-r from-amber-500/10 to-pastel-pink/10 border-amber-500/20'
+                                    }`}>
+                                      <h4 className="text-xs font-black uppercase tracking-wider text-amber-600 dark:text-amber-500 mb-4 flex items-center space-x-1.5">
+                                        <Star className="w-4.5 h-4.5 text-amber-500 animate-spin" />
+                                        <span>12. AI Thesis Citations & Nominations</span>
+                                      </h4>
+                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                                        {Object.entries(activeComparison.comparison_report.recommendations).map(([key, val], i) => (
+                                          <div key={i} className="p-3 bg-white dark:bg-pastel-darkCard rounded-xl border border-gray-100 dark:border-slate-800">
+                                            <p className="text-[9px] uppercase tracking-wider font-extrabold text-gray-400 mb-0.5">
+                                              {key.replace(/_/g, " ")}
+                                            </p>
+                                            <p className="font-semibold text-gray-700 dark:text-gray-250 leading-relaxed">
+                                              {val}
+                                            </p>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                </div>
+                              </div>
+                            )}
 
                           </div>
                         </div>
@@ -2242,6 +2929,448 @@ export default function Dashboard() {
                 Close Report
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* RESEARCH NOVELTY ANALYZER OVERLAY MODAL */}
+      {showNoveltyModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className={`w-full max-w-7xl h-[90vh] rounded-3xl overflow-hidden flex flex-col shadow-2xl transition-all duration-300 border ${
+            isDark ? 'bg-pastel-darkCard border-pastel-darkBorder text-gray-200' : 'bg-white text-gray-800 border-gray-150'
+          }`}>
+            
+            {/* Modal Header */}
+            <div className="p-5 border-b flex items-center justify-between dark:border-pastel-darkBorder flex-shrink-0">
+              <div className="flex items-center space-x-2 mr-4">
+                <Sparkles className="w-5 h-5 text-pastel-accent animate-pulse" />
+                <div>
+                  <h3 className="font-extrabold text-md text-pastel-accent leading-snug">Research Novelty Analyzer</h3>
+                  <p className="text-xs text-gray-400 font-medium">
+                    Evaluating thesis draft against project reference papers
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2 flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={handleAnalyzeNovelty}
+                  disabled={analyzingNovelty}
+                  className="flex items-center space-x-1.5 px-4 py-2 bg-gradient-to-r from-pastel-pink to-pastel-accent hover:from-pastel-pink/95 hover:to-pastel-accent/95 text-white text-xs font-bold rounded-xl transition-all shadow-sm flex-shrink-0 hover-scale disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Sparkles className="w-4 h-4 text-white animate-pulse" />
+                  <span>Run New Analysis</span>
+                </button>
+                <button 
+                  onClick={() => {
+                    if (!analyzingNovelty) {
+                      setShowNoveltyModal(false);
+                    }
+                  }}
+                  className={`p-2 rounded-xl border hover-scale ${
+                    isDark ? 'border-pastel-darkBorder hover:bg-gray-800 text-gray-400' : 'border-gray-150 hover:bg-gray-55 text-gray-505'
+                  }`}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+              
+              {/* Left Column: Historical Runs Sidebar */}
+              <div className="w-full md:w-80 overflow-hidden flex flex-col h-full bg-slate-50 dark:bg-slate-900/30 border-r dark:border-pastel-darkBorder p-5 flex-shrink-0">
+                <h4 className="text-xs font-black uppercase tracking-wider text-pastel-accent mb-1 flex items-center space-x-1">
+                  <span>Analysis History</span>
+                </h4>
+                <p className="text-[10px] text-gray-400 mb-4 font-medium">
+                  Track how your novelty score changes as you update your draft.
+                </p>
+
+                <div className="flex-1 overflow-y-auto space-y-2.5 pr-1">
+                  {loadingNoveltyHistory ? (
+                    <div className="py-8 text-center text-xs text-gray-400">
+                      <Loader2 className="w-4 h-4 animate-spin mx-auto mb-2 text-pastel-accent" />
+                      <span>Loading history...</span>
+                    </div>
+                  ) : noveltyReports.length === 0 ? (
+                    <div className="p-5 text-center text-[11px] text-gray-400 border border-dashed border-gray-250 dark:border-pastel-darkBorder rounded-2xl">
+                      <Sparkles className="w-6 h-6 opacity-20 mx-auto mb-1.5 text-pastel-accent" />
+                      <p className="font-bold">No reports generated</p>
+                      <p className="text-[10px] text-gray-455 mt-0.5">Click "Run New Analysis" to evaluate your draft.</p>
+                    </div>
+                  ) : (
+                    noveltyReports.map((report) => {
+                      const isActive = activeNoveltyReport?.id === report.id;
+                      const dateStr = new Date(report.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+                      const timeStr = new Date(report.created_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+                      
+                      return (
+                        <div
+                          key={report.id}
+                          onClick={() => {
+                            if (!analyzingNovelty) {
+                              setActiveNoveltyReport(report);
+                            }
+                          }}
+                          className={`p-3 rounded-2xl border transition-all cursor-pointer text-left flex flex-col justify-between hover-scale ${
+                            isActive
+                              ? 'border-pastel-accent bg-pastel-accent/10'
+                              : isDark
+                                ? 'bg-slate-900 border-pastel-darkBorder hover:border-pastel-accent/30'
+                                : 'bg-white border-gray-150 hover:border-pastel-pink/40'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-[9px] font-black uppercase text-gray-400 font-mono">
+                              Draft v{report.draft_version}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) => handleDeleteNoveltyReport(report.id, e)}
+                              className="p-1 rounded text-gray-405 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-955/20 transition-colors"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                          <div className="flex items-end justify-between mt-1.5">
+                            <div>
+                              <p className="text-[10px] font-bold text-gray-500 dark:text-gray-350">
+                                {dateStr}
+                              </p>
+                              <p className="text-[9px] text-gray-400">
+                                {timeStr}
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-sm font-black text-pastel-accent">
+                                {report.analysis_report?.overall_similarity}%
+                              </span>
+                              <span className="text-[8px] block uppercase font-bold text-gray-400 tracking-wider">
+                                Similarity
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              {/* Right Column: Analysis Details Panel */}
+              <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                
+                {analyzingNovelty ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center p-8 space-y-4 animate-pulse min-h-[400px]">
+                    <Loader2 className="w-12 h-12 animate-spin text-pastel-accent" />
+                    <div>
+                      <p className="font-bold text-sm text-gray-700 dark:text-gray-300">Evaluating Draft Novelty</p>
+                      <p className="text-xs text-pastel-accent font-semibold mt-1 animate-pulse">
+                        {noveltyMessage}
+                      </p>
+                      <p className="text-[10px] text-gray-400 mt-2 max-w-xs mx-auto">
+                        Ollama is comparing your thesis draft with reference papers. This takes 15–30 seconds. Please do not close this modal.
+                      </p>
+                    </div>
+                  </div>
+                ) : !activeNoveltyReport ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center text-gray-400 p-8 min-h-[400px]">
+                    <Sparkles className="w-16 h-16 mb-4 text-pastel-accent opacity-30 animate-pulse" />
+                    <h4 className="font-bold text-sm text-gray-500 dark:text-gray-300">No Analysis Loaded</h4>
+                    <p className="text-xs text-gray-450 mt-1.5 max-w-md leading-relaxed">
+                      Click **Run New Analysis** in the top right to analyze your current thesis draft against all uploaded reference papers.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-6 text-left animate-fade-in">
+                    
+                    {/* 1. Overall Similarity Gauge & Callout */}
+                    {activeNoveltyReport.analysis_report?.overall_similarity !== undefined && (
+                      <div className={`p-5 rounded-3xl border flex flex-col sm:flex-row items-center gap-5 ${
+                        isDark ? 'bg-slate-900/50 border-pastel-darkBorder' : 'bg-gradient-to-r from-indigo-50/20 to-pastel-pink/10 border-gray-100'
+                      }`}>
+                        {/* Gauge / Circular representation */}
+                        <div className="relative w-24 h-24 flex items-center justify-center flex-shrink-0">
+                          <svg className="w-full h-full transform -rotate-90">
+                            <circle
+                              cx="48"
+                              cy="48"
+                              r="40"
+                              className="stroke-current text-gray-200 dark:text-gray-800"
+                              strokeWidth="8"
+                              fill="transparent"
+                            />
+                            <circle
+                              cx="48"
+                              cy="48"
+                              r="40"
+                              className="stroke-current text-pastel-accent"
+                              strokeWidth="8"
+                              fill="transparent"
+                              strokeDasharray={251.2}
+                              strokeDashoffset={251.2 - (251.2 * activeNoveltyReport.analysis_report.overall_similarity) / 100}
+                            />
+                          </svg>
+                          <div className="absolute flex flex-col items-center justify-center">
+                            <span className="text-xl font-black text-pastel-accent">
+                              {activeNoveltyReport.analysis_report.overall_similarity}%
+                            </span>
+                            <span className="text-[7px] uppercase font-bold text-gray-400 tracking-wider">
+                              Similarity
+                            </span>
+                          </div>
+                        </div>
+                        
+                        <div className="space-y-1">
+                          <h4 className="text-xs font-black uppercase tracking-wider text-gray-400">
+                            1. Overall Similarity Index
+                          </h4>
+                          <p className="text-xs font-semibold text-gray-700 dark:text-gray-200 leading-relaxed">
+                            {activeNoveltyReport.analysis_report.interpretation}
+                          </p>
+                          <p className="text-[10px] text-gray-400 italic">
+                            *This similarity index is calculated relative to the reference papers collected in this project.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 2. Most Similar Papers */}
+                    {activeNoveltyReport.analysis_report?.most_similar_papers && activeNoveltyReport.analysis_report.most_similar_papers.length > 0 && (
+                      <div className="space-y-2.5">
+                        <h4 className="text-xs font-black uppercase tracking-wider text-pastel-accent">
+                          2. Most Similar Papers (Overlap Callouts)
+                        </h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {activeNoveltyReport.analysis_report.most_similar_papers.map((paper, i) => (
+                            <div key={i} className="p-4 rounded-2xl border border-gray-150 dark:border-pastel-darkBorder flex items-start justify-between gap-4 bg-slate-50/30 dark:bg-slate-900/10">
+                              <div className="space-y-1 min-w-0">
+                                <p className="font-bold text-xs text-gray-700 dark:text-gray-200 truncate">{paper.title}</p>
+                                <p className="text-xs text-gray-400 leading-relaxed">{paper.reason}</p>
+                              </div>
+                              <div className="text-right flex-shrink-0">
+                                <span className="px-2 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400 text-[10px] font-black">
+                                  {paper.similarity}%
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 3. Common Research Themes */}
+                    {activeNoveltyReport.analysis_report?.common_themes && activeNoveltyReport.analysis_report.common_themes.length > 0 && (
+                      <div className="space-y-2">
+                        <h4 className="text-xs font-black uppercase tracking-wider text-pastel-accent">
+                          3. Common Research Themes
+                        </h4>
+                        <div className="flex flex-wrap gap-1.5">
+                          {activeNoveltyReport.analysis_report.common_themes.map((theme, i) => (
+                            <span 
+                              key={i} 
+                              className="px-2.5 py-1 text-[10px] font-bold rounded-lg bg-pastel-pink/20 text-pastel-accent border border-pastel-pink/30"
+                            >
+                              {theme}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 4. Potential Contributions */}
+                    {activeNoveltyReport.analysis_report?.potential_contributions && activeNoveltyReport.analysis_report.potential_contributions.length > 0 && (
+                      <div className="space-y-2.5">
+                        <h4 className="text-xs font-black uppercase tracking-wider text-pastel-accent">
+                          4. Potential Research Contributions
+                        </h4>
+                        <div className="border border-gray-150 dark:border-pastel-darkBorder rounded-2xl overflow-hidden divide-y divide-gray-150 dark:divide-pastel-darkBorder text-xs">
+                          <div className="grid grid-cols-2 font-black uppercase text-[9px] tracking-wider text-gray-400 bg-slate-50 dark:bg-slate-900/40 p-3">
+                            <div>Current Reference Papers</div>
+                            <div className="border-l border-gray-150 dark:border-pastel-darkBorder pl-3">Your Thesis Draft</div>
+                          </div>
+                          {activeNoveltyReport.analysis_report.potential_contributions.map((item, i) => (
+                            <div key={i} className="grid grid-cols-2 p-3.5 leading-relaxed text-gray-500 dark:text-gray-400">
+                              <div className="pr-3">{item.current_papers}</div>
+                              <div className="border-l border-gray-150 dark:border-pastel-darkBorder pl-3 font-semibold text-pastel-accent">
+                                {item.your_research}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 5. Similar Sections & 6. Unique Sections */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                      
+                      {/* Similar Sections */}
+                      {activeNoveltyReport.analysis_report?.similar_sections && activeNoveltyReport.analysis_report.similar_sections.length > 0 && (
+                        <div className={`p-4 rounded-2xl border ${
+                          isDark ? 'bg-slate-900/40 border-pastel-darkBorder' : 'bg-rose-50/10 border-rose-100'
+                        }`}>
+                          <h4 className="text-xs font-black uppercase tracking-wider text-rose-600 dark:text-rose-400 mb-3">
+                            5. Sections with High Overlap
+                          </h4>
+                          <div className="space-y-3">
+                            {activeNoveltyReport.analysis_report.similar_sections.map((item, i) => (
+                              <div key={i} className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+                                <p className="font-extrabold uppercase text-[9px] tracking-wider text-rose-500">{item.section}</p>
+                                <p>{item.overlap}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Unique Sections */}
+                      {activeNoveltyReport.analysis_report?.unique_sections && activeNoveltyReport.analysis_report.unique_sections.length > 0 && (
+                        <div className={`p-4 rounded-2xl border ${
+                          isDark ? 'bg-slate-900/40 border-pastel-darkBorder' : 'bg-emerald-50/10 border-emerald-100'
+                        }`}>
+                          <h4 className="text-xs font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 mb-3">
+                            6. Unique/Differentiated Sections
+                          </h4>
+                          <div className="space-y-3">
+                            {activeNoveltyReport.analysis_report.unique_sections.map((item, i) => (
+                              <div key={i} className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+                                <p className="font-extrabold uppercase text-[9px] tracking-wider text-emerald-500">{item.section}</p>
+                                <p>{item.description}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                    </div>
+
+                    {/* 7. Missing Contributions */}
+                    {activeNoveltyReport.analysis_report?.missing_contributions && activeNoveltyReport.analysis_report.missing_contributions.length > 0 && (
+                      <div className={`p-4 rounded-2xl border ${
+                        isDark ? 'bg-slate-900/30 border-pastel-darkBorder' : 'bg-rose-500/5 border-rose-500/10'
+                      }`}>
+                        <h4 className="text-xs font-black uppercase tracking-wider text-rose-600 dark:text-rose-450 mb-2.5 flex items-center space-x-1.5">
+                          <AlertTriangle className="w-4.5 h-4.5 text-rose-500" />
+                          <span>7. Suggested Thesis Extensions (Missing Elements)</span>
+                        </h4>
+                        <ul className="space-y-2">
+                          {activeNoveltyReport.analysis_report.missing_contributions.map((item, i) => (
+                            <li key={i} className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed flex items-start space-x-2">
+                              <span className="text-rose-500 font-bold mt-0.5">&bull;</span>
+                              <span>{item}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* 8. Research Gap Alignment */}
+                    {activeNoveltyReport.analysis_report?.gap_alignment && (
+                      <div className="p-4 rounded-2xl border border-gray-150 dark:border-pastel-darkBorder space-y-3.5">
+                        <h4 className="text-xs font-black uppercase tracking-wider text-pastel-accent flex items-center space-x-1.5">
+                          <Clock className="w-4.5 h-4.5 text-pastel-accent" />
+                          <span>8. Reference Gap Alignment Check</span>
+                        </h4>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                          {/* Gaps Detected */}
+                          <div className="p-3.5 bg-slate-50 dark:bg-slate-900/40 rounded-xl space-y-1">
+                            <p className="font-extrabold uppercase text-[9px] tracking-wider text-gray-400">Gaps in Literature</p>
+                            <ul className="space-y-1 text-gray-550 dark:text-gray-400">
+                              {activeNoveltyReport.analysis_report.gap_alignment.gaps_detected?.map((g, i) => (
+                                <li key={i} className="flex items-start space-x-1.5">
+                                  <span className="text-gray-400">•</span>
+                                  <span>{g}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+
+                          {/* Gaps Addressed */}
+                          <div className="p-3.5 bg-emerald-500/5 dark:bg-emerald-500/10 rounded-xl space-y-1">
+                            <p className="font-extrabold uppercase text-[9px] tracking-wider text-emerald-600">Addressed by you</p>
+                            <ul className="space-y-1 text-gray-550 dark:text-gray-400">
+                              {activeNoveltyReport.analysis_report.gap_alignment.addressed?.map((g, i) => (
+                                <li key={i} className="flex items-start space-x-1.5">
+                                  <span className="text-emerald-500 font-bold">✓</span>
+                                  <span className="font-medium text-gray-700 dark:text-gray-255">{g}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+
+                          {/* Gaps Missing */}
+                          <div className="p-3.5 bg-rose-500/5 dark:bg-rose-500/10 rounded-xl space-y-1">
+                            <p className="font-extrabold uppercase text-[9px] tracking-wider text-rose-605">Still Missing</p>
+                            <ul className="space-y-1 text-gray-550 dark:text-gray-400">
+                              {activeNoveltyReport.analysis_report.gap_alignment.missing?.map((g, i) => (
+                                <li key={i} className="flex items-start space-x-1.5">
+                                  <span className="text-rose-500 font-bold">⚠️</span>
+                                  <span>{g}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 9. Improvement Suggestions */}
+                    {activeNoveltyReport.analysis_report?.improvement_suggestions && activeNoveltyReport.analysis_report.improvement_suggestions.length > 0 && (
+                      <div className="p-5 rounded-2xl border border-gray-150 dark:border-pastel-darkBorder space-y-3">
+                        <h4 className="text-xs font-black uppercase tracking-wider text-pastel-accent flex items-center space-x-1.5">
+                          <Award className="w-4.5 h-4.5 text-pastel-accent" />
+                          <span>9. Actionable Thesis Improvement Plan</span>
+                        </h4>
+                        <div className="space-y-2.5">
+                          {activeNoveltyReport.analysis_report.improvement_suggestions.map((sug, i) => (
+                            <div key={i} className="flex items-start space-x-2.5 text-xs">
+                              <input
+                                type="checkbox"
+                                className="mt-0.5 h-4 w-4 rounded border-gray-300 text-pastel-accent focus:ring-pastel-accent cursor-pointer"
+                              />
+                              <span className="text-gray-600 dark:text-gray-300 font-medium leading-relaxed">{sug}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 10. AI Conclusion */}
+                    {activeNoveltyReport.analysis_report?.conclusion && (
+                      <div className={`p-5 rounded-3xl border ${
+                        isDark ? 'bg-slate-900 border-pastel-darkBorder' : 'bg-gradient-to-r from-amber-500/15 to-pastel-pink/15 border-amber-500/20'
+                      }`}>
+                        <h4 className="text-xs font-black uppercase tracking-wider text-amber-600 dark:text-amber-500 mb-2 flex items-center space-x-1.5">
+                          <Star className="w-4.5 h-4.5 text-amber-500 animate-spin" />
+                          <span>10. Academic Synthesis & Advisor Conclusion</span>
+                        </h4>
+                        <p className="text-xs text-gray-700 dark:text-gray-250 leading-relaxed font-semibold">
+                          {activeNoveltyReport.analysis_report.conclusion}
+                        </p>
+                      </div>
+                    )}
+
+                  </div>
+                )}
+
+              </div>
+            </div>
+            
+            {/* Modal Footer */}
+            <div className="p-4 border-t dark:border-pastel-darkBorder flex justify-end flex-shrink-0">
+              <button
+                type="button"
+                disabled={analyzingNovelty}
+                onClick={() => setShowNoveltyModal(false)}
+                className="px-5 py-2 rounded-xl text-xs font-bold bg-pastel-accent text-white hover:bg-pastel-accent/95 hover-scale shadow-sm disabled:opacity-50"
+              >
+                Close Report
+              </button>
+            </div>
+
           </div>
         </div>
       )}

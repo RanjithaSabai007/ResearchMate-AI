@@ -180,6 +180,18 @@ class Project(Base):
         cascade="all, delete-orphan"
     )
 
+    comparisons = relationship(
+        "PaperComparison",
+        back_populates="project",
+        cascade="all, delete-orphan"
+    )
+
+    novelty_analyses = relationship(
+        "NoveltyAnalysis",
+        back_populates="project",
+        cascade="all, delete-orphan"
+    )
+
 
 class Paper(Base):
     __tablename__ = "papers"
@@ -290,4 +302,49 @@ class PaperChatMessage(Base):
     paper = relationship(
         "Paper",
         back_populates="chat_messages"
+    )
+
+
+class PaperComparison(Base):
+    __tablename__ = "paper_comparisons"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(
+        Integer,
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False
+    )
+    selected_papers = Column(Text, nullable=False)
+    comparison_report = Column(Text, nullable=False)
+    created_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc)
+    )
+
+    project = relationship(
+        "Project",
+        back_populates="comparisons"
+    )
+
+
+class NoveltyAnalysis(Base):
+    __tablename__ = "novelty_analyses"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(
+        Integer,
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False
+    )
+    draft_version = Column(Integer, nullable=False, default=1)
+    comparison_papers = Column(Text, nullable=False)
+    analysis_report = Column(Text, nullable=False)
+    created_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc)
+    )
+
+    project = relationship(
+        "Project",
+        back_populates="novelty_analyses"
     )

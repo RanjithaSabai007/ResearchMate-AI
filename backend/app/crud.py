@@ -243,4 +243,96 @@ def add_paper_chat_message(db: Session, paper_id: int, role: str, content: str):
     db.add(db_msg)
     db.commit()
     db.refresh(db_msg)
-    return db_msg
+    return db_msg
+
+
+def get_project_comparisons(db: Session, project_id: int):
+    return (
+        db.query(models.PaperComparison)
+        .filter(models.PaperComparison.project_id == project_id)
+        .order_by(models.PaperComparison.created_at.desc())
+        .all()
+    )
+
+
+def get_comparison(db: Session, comparison_id: int, project_id: int):
+    return (
+        db.query(models.PaperComparison)
+        .filter(
+            models.PaperComparison.id == comparison_id,
+            models.PaperComparison.project_id == project_id
+        )
+        .first()
+    )
+
+
+def create_comparison(db: Session, project_id: int, paper_ids: list, report: dict):
+    db_comparison = models.PaperComparison(
+        project_id=project_id,
+        selected_papers=json.dumps(paper_ids),
+        comparison_report=json.dumps(report)
+    )
+    db.add(db_comparison)
+    db.commit()
+    db.refresh(db_comparison)
+    return db_comparison
+
+
+def delete_comparison(db: Session, comparison_id: int, project_id: int):
+    db_comp = get_comparison(db, comparison_id, project_id)
+    if db_comp:
+        db.delete(db_comp)
+        db.commit()
+        return True
+    return False
+
+
+def get_project_novelty_analyses(db: Session, project_id: int):
+    return (
+        db.query(models.NoveltyAnalysis)
+        .filter(models.NoveltyAnalysis.project_id == project_id)
+        .order_by(models.NoveltyAnalysis.created_at.desc())
+        .all()
+    )
+
+
+def get_novelty_analysis(db: Session, analysis_id: int, project_id: int):
+    return (
+        db.query(models.NoveltyAnalysis)
+        .filter(
+            models.NoveltyAnalysis.id == analysis_id,
+            models.NoveltyAnalysis.project_id == project_id
+        )
+        .first()
+    )
+
+
+def create_novelty_analysis(db: Session, project_id: int, paper_ids: list, report: dict):
+    # Get the latest version number for this project's novelty analyses
+    latest = (
+        db.query(models.NoveltyAnalysis)
+        .filter(models.NoveltyAnalysis.project_id == project_id)
+        .order_by(models.NoveltyAnalysis.draft_version.desc())
+        .first()
+    )
+    next_version = (latest.draft_version + 1) if latest else 1
+
+    db_analysis = models.NoveltyAnalysis(
+        project_id=project_id,
+        draft_version=next_version,
+        comparison_papers=json.dumps(paper_ids),
+        analysis_report=json.dumps(report)
+    )
+    db.add(db_analysis)
+    db.commit()
+    db.refresh(db_analysis)
+    return db_analysis
+
+
+def delete_novelty_analysis(db: Session, analysis_id: int, project_id: int):
+    db_analysis = get_novelty_analysis(db, analysis_id, project_id)
+    if db_analysis:
+        db.delete(db_analysis)
+        db.commit()
+        return True
+    return False
