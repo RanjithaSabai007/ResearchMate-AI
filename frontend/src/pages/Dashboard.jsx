@@ -38,6 +38,7 @@ import {
   AlertTriangle,
   Presentation,
   History,
+  Award
 } from 'lucide-react';
 
 export default function Dashboard() {
