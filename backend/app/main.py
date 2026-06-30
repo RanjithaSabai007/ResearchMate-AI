@@ -1395,11 +1395,10 @@ def forgot_password(data: schemas.ForgotPasswordRequest, db: Session = Depends(g
     return {
         "success": True,
         "data": {
-            "demo_otp": otp,  # Exposed for local dev / testing convenience
             "email_sent": email_sent
         },
         "error_code": None,
-        "message": "Reset code sent to your email. Use the code to verify your request."
+        "message": "If an account exists, a verification code has been sent to your email."
     }
 
 @app.post("/api/auth/reset-password", response_model=schemas.ApiResponse[dict], tags=["Authentication"])
