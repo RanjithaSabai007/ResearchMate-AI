@@ -38,7 +38,8 @@ import {
   AlertTriangle,
   Presentation,
   History,
-  Award
+  Award,
+  Network
 } from 'lucide-react';
 
 export default function Dashboard() {
@@ -125,6 +126,25 @@ export default function Dashboard() {
   // Thesis Presentation Generator state
   const [generatingPresentation, setGeneratingPresentation] = useState(false);
   const [presentationMessage, setPresentationMessage] = useState('');
+
+  // AI Diagram Generator state
+  const [showDiagramModal, setShowDiagramModal] = useState(false);
+  const [generatingDiagram, setGeneratingDiagram] = useState(false);
+  const [diagramMessage, setDiagramMessage] = useState('');
+  const [diagramsList, setDiagramsList] = useState([]);
+  const [activeDiagram, setActiveDiagram] = useState(null);
+  const [loadingDiagrams, setLoadingDiagrams] = useState(false);
+  const [diagramSelectionText, setDiagramSelectionText] = useState('');
+  const [recommendedDiagramType, setRecommendedDiagramType] = useState('Methodology Flowchart');
+  const [recommendedReason, setRecommendedReason] = useState('');
+  const [diagramType, setDiagramType] = useState('Methodology Flowchart');
+  const [diagramStyle, setDiagramStyle] = useState('Academic Block Diagram');
+  const [draggingNodeId, setDraggingNodeId] = useState(null);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [isEditingDiagramNode, setIsEditingDiagramNode] = useState(null);
+  const [newEdgeSource, setNewEdgeSource] = useState('');
+  const [newEdgeTarget, setNewEdgeTarget] = useState('');
+  const [newEdgeLabel, setNewEdgeLabel] = useState('');
 
   // Audit and sessions state
   const [sessionsCount, setSessionsCount] = useState(1);
@@ -275,6 +295,8 @@ export default function Dashboard() {
     setActiveComparison(null);
     setNoveltyReports([]);
     setActiveNoveltyReport(null);
+    setDiagramsList([]);
+    setActiveDiagram(null);
     // Load fresh project details (including papers)
     try {
       const response = await api.get(`/api/projects/${project.id}`);
@@ -289,6 +311,9 @@ export default function Dashboard() {
 
       // Load novelty history
       fetchNoveltyReports(projectDetails.id);
+
+      // Load diagrams list
+      fetchDiagrams(projectDetails.id);
 
       // Select the first paper by default for the tab chat if papers exist
       if (projectDetails.papers && projectDetails.papers.length > 0) {
@@ -566,6 +591,384 @@ export default function Dashboard() {
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+  };
+
+  // --- AI Diagram Generator Operations ---
+
+  const fetchDiagrams = async (projectId) => {
+    setLoadingDiagrams(true);
+    try {
+      const response = await api.get(`/api/projects/${projectId}/diagrams`);
+      setDiagramsList(response.data);
+      if (response.data && response.data.length > 0) {
+        setActiveDiagram(response.data[0]);
+      } else {
+        setActiveDiagram(null);
+      }
+    } catch (err) {
+      console.error("Failed to load diagrams:", err);
+    } finally {
+      setLoadingDiagrams(false);
+    }
+  };
+
+  const analyzeDraftForDiagramRecommendation = (text) => {
+    if (!text) return { recommendedType: 'Methodology Flowchart', reason: 'Default recommendation' };
+    const lower = text.toLowerCase();
+    
+    if (lower.includes('database') || lower.includes('table') || lower.includes('entity') || lower.includes('relationship') || lower.includes('erd') || lower.includes('schema')) {
+      return { 
+        recommendedType: 'Entity Relationship Diagram (ERD)', 
+        reason: 'Detected database schema or entity relationship terms in content.' 
+      };
+    }
+    if (lower.includes('architecture') || lower.includes('system design') || lower.includes('layer') || lower.includes('component') || lower.includes('module')) {
+      return { 
+        recommendedType: 'System Architecture', 
+        reason: 'Detected system components or software architecture terms.' 
+      };
+    }
+    if (lower.includes('deployment') || lower.includes('kubernetes') || lower.includes('docker') || lower.includes('cloud') || lower.includes('aws') || lower.includes('server')) {
+      return { 
+        recommendedType: 'Deployment Architecture', 
+        reason: 'Detected system hosting, server, or cloud deployment details.' 
+      };
+    }
+    if (lower.includes('workflow') || lower.includes('process') || lower.includes('step') || lower.includes('user flow')) {
+      return { 
+        recommendedType: 'Workflow Diagram', 
+        reason: 'Detected step-by-step process flow or activity details.' 
+      };
+    }
+    return { 
+      recommendedType: 'Methodology Flowchart', 
+      reason: 'Detected research process or implementation methodology context.' 
+    };
+  };
+
+  const handleOpenGenerateDiagramModal = () => {
+    if (!selectedProject) return;
+    
+    let selectedText = '';
+    if (window.getSelection) {
+      selectedText = window.getSelection().toString().trim();
+    }
+    
+    setDiagramSelectionText(selectedText);
+    
+    const analysis = analyzeDraftForDiagramRecommendation(selectedText || draftContent);
+    setRecommendedDiagramType(analysis.recommendedType);
+    setRecommendedReason(analysis.reason);
+    setDiagramType(analysis.recommendedType);
+    setShowDiagramModal(true);
+  };
+
+  const handleGenerateDiagram = async () => {
+    if (!selectedProject) return;
+    
+    // Auto-save first
+    await handleSaveDraft();
+    
+    setGeneratingDiagram(true);
+    setShowDiagramModal(false);
+    setWorkspaceTab('diagrams');
+    
+    const stages = [
+      "Analyzing selected text components...",
+      "Extracting inputs, processes, and outputs...",
+      "Generating system node relationships...",
+      "Computing relative layout coordinates...",
+      "Synthesizing visual graph structures...",
+      "Finalizing research diagram..."
+    ];
+    let msgIdx = 0;
+    setDiagramMessage(stages[0]);
+    const interval = setInterval(() => {
+      msgIdx = (msgIdx + 1) % stages.length;
+      setDiagramMessage(stages[msgIdx]);
+    }, 4000);
+
+    try {
+      const response = await api.post(`/api/projects/${selectedProject.id}/diagrams/generate`, {
+        diagram_type: diagramType,
+        diagram_style: diagramStyle,
+        selected_text: diagramSelectionText
+      });
+      const newDiagram = response.data;
+      setDiagramsList(prev => [newDiagram, ...prev]);
+      setActiveDiagram(newDiagram);
+    } catch (err) {
+      console.error("Failed to generate diagram:", err);
+      alert("Diagram generation failed: " + (err.response?.data?.message || err.message));
+    } finally {
+      clearInterval(interval);
+      setGeneratingDiagram(false);
+      setDiagramMessage("");
+    }
+  };
+
+  const handleSaveActiveDiagram = async (updatedDiag) => {
+    if (!selectedProject || !updatedDiag) return;
+    try {
+      const response = await api.put(`/api/projects/${selectedProject.id}/diagrams/${updatedDiag.id}`, {
+        name: updatedDiag.name,
+        diagram_type: updatedDiag.diagram_type,
+        diagram_style: updatedDiag.diagram_style,
+        nodes: updatedDiag.nodes,
+        edges: updatedDiag.edges
+      });
+      setDiagramsList(prev => prev.map(d => d.id === updatedDiag.id ? response.data : d));
+    } catch (err) {
+      console.error("Failed to save diagram changes:", err);
+    }
+  };
+
+  const handleDeleteDiagram = async (diagramId, e) => {
+    if (e) e.stopPropagation();
+    if (!window.confirm("Are you sure you want to delete this diagram? All node layout data will be permanently removed.")) return;
+    
+    try {
+      await api.delete(`/api/projects/${selectedProject.id}/diagrams/${diagramId}`);
+      setDiagramsList(prev => prev.filter(d => d.id !== diagramId));
+      if (activeDiagram?.id === diagramId) {
+        setActiveDiagram(null);
+      }
+    } catch (err) {
+      console.error("Failed to delete diagram:", err);
+    }
+  };
+
+  const handleNodeDragStart = (e, nodeId) => {
+    e.preventDefault();
+    const svgCanvas = document.getElementById('diagram-svg-canvas');
+    if (!svgCanvas) return;
+    const svgRect = svgCanvas.getBoundingClientRect();
+    
+    setDraggingNodeId(nodeId);
+    setDragOffset({
+      x: e.clientX - svgRect.left,
+      y: e.clientY - svgRect.top
+    });
+  };
+
+  const handleNodeDragMove = (e) => {
+    if (!draggingNodeId || !activeDiagram) return;
+    const svgCanvas = document.getElementById('diagram-svg-canvas');
+    if (!svgCanvas) return;
+    const svgRect = svgCanvas.getBoundingClientRect();
+    
+    const mouseX = e.clientX - svgRect.left;
+    const mouseY = e.clientY - svgRect.top;
+    
+    setActiveDiagram(prev => {
+      if (!prev) return prev;
+      const updatedNodes = prev.nodes.map(n => {
+        if (n.id === draggingNodeId) {
+          return {
+            ...n,
+            x: Math.max(50, Math.min(950, Math.round(mouseX))),
+            y: Math.max(50, Math.min(550, Math.round(mouseY)))
+          };
+        }
+        return n;
+      });
+      return { ...prev, nodes: updatedNodes };
+    });
+  };
+
+  const handleNodeDragEnd = () => {
+    if (!draggingNodeId) return;
+    setDraggingNodeId(null);
+    handleSaveActiveDiagram(activeDiagram);
+  };
+
+  const handleExportSVG = () => {
+    if (!activeDiagram) return;
+    const svgElement = document.getElementById('diagram-svg-canvas');
+    if (!svgElement) return;
+    
+    const svgString = new XMLSerializer().serializeToString(svgElement);
+    const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${activeDiagram.name.replace(/\s+/g, '_')}.svg`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportPNG = () => {
+    if (!activeDiagram) return;
+    const svgElement = document.getElementById('diagram-svg-canvas');
+    if (!svgElement) return;
+    
+    const svgString = new XMLSerializer().serializeToString(svgElement);
+    const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+    const blobURL = URL.createObjectURL(svgBlob);
+    
+    const image = new Image();
+    image.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1000;
+      canvas.height = 600;
+      const context = canvas.getContext('2d');
+      
+      if (activeDiagram.diagram_style.toLowerCase().includes('dark')) {
+        context.fillStyle = '#0f172a';
+      } else {
+        context.fillStyle = '#ffffff';
+      }
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      
+      context.drawImage(image, 0, 0, 1000, 600);
+      const pngData = canvas.toDataURL('image/png');
+      
+      const a = document.createElement("a");
+      a.href = pngData;
+      a.download = `${activeDiagram.name.replace(/\s+/g, '_')}.png`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(blobURL);
+    };
+    image.src = blobURL;
+  };
+
+  const handleExportJSON = () => {
+    if (!activeDiagram) return;
+    const jsonString = JSON.stringify({
+      nodes: activeDiagram.nodes,
+      edges: activeDiagram.edges,
+      diagram_type: activeDiagram.diagram_type,
+      diagram_style: activeDiagram.diagram_style
+    }, null, 2);
+    
+    const blob = new Blob([jsonString], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${activeDiagram.name.replace(/\s+/g, '_')}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleInsertDiagramIntoThesis = () => {
+    if (!activeDiagram) return;
+    const svgElement = document.getElementById('diagram-svg-canvas');
+    if (!svgElement) return;
+    
+    const clone = svgElement.cloneNode(true);
+    clone.removeAttribute('id');
+    clone.style.cursor = 'default';
+    clone.style.width = '100%';
+    clone.style.height = 'auto';
+    clone.style.maxWidth = '650px';
+    
+    const wrapper = document.createElement('div');
+    wrapper.className = 'my-6 flex justify-center content-diagram-embed';
+    wrapper.style.textAlign = 'center';
+    wrapper.style.display = 'flex';
+    wrapper.style.justifyContent = 'center';
+    wrapper.appendChild(clone);
+    
+    if (editorRef.current) {
+      editorRef.current.focus();
+      document.execCommand('insertHTML', false, wrapper.outerHTML);
+      setSaveStatus('unsaved');
+      alert("Diagram successfully inserted inline into your thesis draft!");
+      setWorkspaceTab('editor');
+    } else {
+      alert("Please open the Editor tab first.");
+    }
+  };
+
+  const handleAddNewNode = () => {
+    if (!activeDiagram) return;
+    const nextId = `node_${activeDiagram.nodes.length + 1}_${Date.now()}`;
+    const newNode = {
+      id: nextId,
+      label: "New Component",
+      type: "process",
+      x: 450,
+      y: 250,
+      color: "#6366f1"
+    };
+    
+    const updated = {
+      ...activeDiagram,
+      nodes: [...activeDiagram.nodes, newNode]
+    };
+    setActiveDiagram(updated);
+    handleSaveActiveDiagram(updated);
+  };
+
+  const handleUpdateNodeLabel = (nodeId, text) => {
+    if (!activeDiagram) return;
+    const updated = {
+      ...activeDiagram,
+      nodes: activeDiagram.nodes.map(n => n.id === nodeId ? { ...n, label: text } : n)
+    };
+    setActiveDiagram(updated);
+  };
+
+  const handleUpdateNodeColor = (nodeId, color) => {
+    if (!activeDiagram) return;
+    const updated = {
+      ...activeDiagram,
+      nodes: activeDiagram.nodes.map(n => n.id === nodeId ? { ...n, color: color } : n)
+    };
+    setActiveDiagram(updated);
+    handleSaveActiveDiagram(updated);
+  };
+
+  const handleDeleteNode = (nodeId) => {
+    if (!activeDiagram) return;
+    const updated = {
+      ...activeDiagram,
+      nodes: activeDiagram.nodes.filter(n => n.id !== nodeId),
+      edges: activeDiagram.edges.filter(e => e.source !== nodeId && e.target !== nodeId)
+    };
+    setActiveDiagram(updated);
+    handleSaveActiveDiagram(updated);
+  };
+
+  const handleAddNewEdge = (e) => {
+    if (e) e.preventDefault();
+    if (!activeDiagram || !newEdgeSource || !newEdgeTarget) return;
+    
+    const nextId = `edge_${activeDiagram.edges.length + 1}_${Date.now()}`;
+    const newEdge = {
+      id: nextId,
+      source: newEdgeSource,
+      target: newEdgeTarget,
+      label: newEdgeLabel || "Flow"
+    };
+    
+    const updated = {
+      ...activeDiagram,
+      edges: [...activeDiagram.edges, newEdge]
+    };
+    
+    setActiveDiagram(updated);
+    handleSaveActiveDiagram(updated);
+    
+    setNewEdgeSource('');
+    setNewEdgeTarget('');
+    setNewEdgeLabel('');
+  };
+
+  const handleDeleteEdge = (edgeId) => {
+    if (!activeDiagram) return;
+    const updated = {
+      ...activeDiagram,
+      edges: activeDiagram.edges.filter(e => e.id !== edgeId)
+    };
+    setActiveDiagram(updated);
+    handleSaveActiveDiagram(updated);
   };
 
   // --- Draft Editor (Microsoft Word-like) Operations ---
@@ -1193,6 +1596,20 @@ export default function Dashboard() {
                           <Sparkles className="w-4 h-4" />
                           <span>Comparison Engine</span>
                         </button>
+                        <button
+                          onClick={() => {
+                            setWorkspaceTab('diagrams');
+                            if (selectedProject) fetchDiagrams(selectedProject.id);
+                          }}
+                          className={`flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all ${
+                            workspaceTab === 'diagrams'
+                              ? 'bg-pastel-accent text-white shadow-sm'
+                              : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-200'
+                          }`}
+                        >
+                          <Network className="w-4 h-4" />
+                          <span>Diagrams</span>
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -1374,6 +1791,17 @@ export default function Dashboard() {
                             >
                               <History className="w-3.5 h-3.5" />
                               <span>Novelty History</span>
+                            </button>
+
+                            {/* Generate Diagram */}
+                            <button
+                              type="button"
+                              onClick={handleOpenGenerateDiagramModal}
+                              className="flex items-center space-x-1.5 px-3.5 py-2 text-xs font-bold rounded-xl transition-all shadow-sm bg-gradient-to-r from-emerald-500 to-teal-600 text-white hover-scale"
+                              title="Generate an interactive research diagram from current section / selection"
+                            >
+                              <Network className="w-3.5 h-3.5 text-white" />
+                              <span>Generate Diagram</span>
                             </button>
 
                             {/* Save Draft */}
@@ -2379,6 +2807,499 @@ export default function Dashboard() {
 
                           </div>
                         </div>
+                      </div>
+                    )}
+
+                    {/* PANEL 5: AI DIAGRAM GENERATOR WORKSPACE */}
+                    {workspaceTab === 'diagrams' && (
+                      <div className="h-full p-6 flex flex-col overflow-hidden animate-fade-in text-left">
+                        {generatingDiagram ? (
+                          <div className="flex-1 flex flex-col items-center justify-center text-center p-8 space-y-4">
+                            <Loader2 className="w-12 h-12 animate-spin text-pastel-accent" />
+                            <div>
+                              <h4 className="font-bold text-sm text-gray-700 dark:text-gray-300">Generating Architecture & Flow Diagrams</h4>
+                              <p className="text-xs text-pastel-accent font-semibold mt-1 animate-pulse">
+                                {diagramMessage}
+                              </p>
+                              <p className="text-[10px] text-gray-400 mt-2 max-w-xs mx-auto">
+                                Ollama is extracting methodologies and laying out visual entities. This takes 10–20 seconds.
+                              </p>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="max-w-7xl mx-auto w-full flex-1 flex flex-col lg:flex-row gap-6 overflow-hidden h-[calc(100vh-220px)]">
+                            
+                            {/* History sidebar */}
+                            <div className="w-full lg:w-72 flex flex-col p-4 rounded-3xl border bg-white dark:bg-pastel-darkCard dark:border-pastel-darkBorder shadow-sm flex-shrink-0">
+                              <h3 className="font-extrabold text-xs text-pastel-accent mb-1 uppercase tracking-wider flex items-center space-x-2">
+                                <Network className="w-4 h-4 text-pastel-accent animate-pulse" />
+                                <span>Diagram History</span>
+                              </h3>
+                              <p className="text-[10px] text-gray-400 mb-4 leading-relaxed">
+                                Access previously generated research diagrams.
+                              </p>
+                              
+                              <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+                                {loadingDiagrams ? (
+                                  <div className="py-8 text-center text-xs text-gray-400">
+                                    <Loader2 className="w-4.5 h-4.5 animate-spin mx-auto mb-2 text-pastel-accent" />
+                                    <span>Retrieving diagrams...</span>
+                                  </div>
+                                ) : diagramsList.length === 0 ? (
+                                  <div className="p-4 text-center text-xs text-gray-400 border border-dashed border-gray-200 dark:border-pastel-darkBorder rounded-2xl">
+                                    <Network className="w-7 h-7 opacity-20 mx-auto mb-1 text-pastel-accent" />
+                                    <p className="font-bold">No diagrams created</p>
+                                    <p className="text-[9px] text-gray-450 mt-1 leading-relaxed">Highlight text in draft and click "Generate Diagram" to start.</p>
+                                  </div>
+                                ) : (
+                                  diagramsList.map((diag) => {
+                                    const isActive = activeDiagram?.id === diag.id;
+                                    return (
+                                      <div
+                                        key={diag.id}
+                                        onClick={() => {
+                                          setActiveDiagram(diag);
+                                          setIsEditingDiagramNode(null);
+                                        }}
+                                        className={`p-3 rounded-2xl border transition-all cursor-pointer text-left flex items-center justify-between hover-scale ${
+                                          isActive
+                                            ? 'border-pastel-accent bg-pastel-accent/10'
+                                            : isDark
+                                              ? 'bg-slate-900 border-pastel-darkBorder hover:border-pastel-accent/30'
+                                              : 'bg-white border-gray-150 hover:border-pastel-pink/40'
+                                        }`}
+                                      >
+                                        <div className="min-w-0 pr-2">
+                                          <p className="font-bold text-[11px] text-gray-700 dark:text-gray-200 truncate">
+                                            {diag.name}
+                                          </p>
+                                          <span className="text-[9px] font-bold text-gray-400 uppercase font-mono">
+                                            {diag.diagram_type}
+                                          </span>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => handleDeleteDiagram(diag.id, e)}
+                                          className="p-1 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                      </div>
+                                    );
+                                  })
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Center visual workspace & controls */}
+                            {!activeDiagram ? (
+                              <div className="flex-1 flex flex-col items-center justify-center border border-dashed rounded-3xl bg-slate-50/20 dark:bg-slate-900/5 p-8 text-center text-gray-400 h-full">
+                                <Network className="w-16 h-16 mb-3 text-pastel-accent opacity-20" />
+                                <h4 className="font-bold text-sm text-gray-500 dark:text-gray-300">No Diagram Selected</h4>
+                                <p className="text-xs text-gray-450 mt-1 max-w-sm">
+                                  Select a generated diagram from the left list, or return to your **Thesis Draft** and highlight a paragraph to generate a flowchart.
+                                </p>
+                              </div>
+                            ) : (
+                              <div className="flex-1 flex flex-col lg:flex-row gap-6 overflow-hidden h-full">
+                                
+                                {/* Graph canvas */}
+                                <div className="flex-1 flex flex-col p-4 rounded-3xl border bg-white dark:bg-slate-900/40 dark:border-pastel-darkBorder shadow-sm relative overflow-hidden h-full">
+                                  <div className="flex items-center justify-between mb-3">
+                                    <div className="flex items-center space-x-2">
+                                      <span className="text-[10px] font-black bg-pastel-accent/20 text-pastel-accent px-2 py-0.5 rounded uppercase">
+                                        Canvas Viewport
+                                      </span>
+                                      <span className="text-[9px] text-gray-400 font-medium">
+                                        * Drag node cards to adjust layout. Autosaves position.
+                                      </span>
+                                    </div>
+                                    <span className="text-xs font-bold text-gray-400 uppercase tracking-widest bg-gray-100 dark:bg-slate-800 px-2.5 py-1 rounded-lg">
+                                      {activeDiagram.diagram_style}
+                                    </span>
+                                  </div>
+
+                                  {/* SVG Graph Canvas wrapper */}
+                                  <div 
+                                    className={`flex-1 rounded-2xl relative overflow-hidden border min-h-[350px] ${
+                                      activeDiagram.diagram_style.toLowerCase().includes('dark') 
+                                        ? 'bg-slate-950 border-slate-900' 
+                                        : activeDiagram.diagram_style.toLowerCase().includes('ieee') 
+                                          ? 'bg-white border-black' 
+                                          : 'bg-slate-50/50 border-gray-100'
+                                    }`}
+                                  >
+                                    {/* Grid background details */}
+                                    <div className="absolute inset-0 opacity-[0.03] dark:opacity-[0.05] pointer-events-none" style={{
+                                      backgroundImage: 'radial-gradient(#475569 2px, transparent 2px)',
+                                      backgroundSize: '24px 24px'
+                                    }} />
+
+                                    <svg
+                                      id="diagram-svg-canvas"
+                                      className="w-full h-full cursor-default select-none"
+                                      onMouseMove={handleNodeDragMove}
+                                      onMouseUp={handleNodeDragEnd}
+                                      onMouseLeave={handleNodeDragEnd}
+                                      viewBox="0 0 1000 600"
+                                      preserveAspectRatio="xMidYMid meet"
+                                    >
+                                      {/* Arrowhead marker definition */}
+                                      <defs>
+                                        <marker
+                                          id="arrow"
+                                          viewBox="0 0 10 10"
+                                          refX="20"
+                                          refY="5"
+                                          markerWidth="6"
+                                          markerHeight="6"
+                                          orient="auto-start-reverse"
+                                        >
+                                          <path 
+                                            d="M 0 0 L 10 5 L 0 10 z" 
+                                            fill={
+                                              activeDiagram.diagram_style.toLowerCase().includes('dark') 
+                                                ? '#cbd5e1' 
+                                                : activeDiagram.diagram_style.toLowerCase().includes('ieee')
+                                                  ? '#000000'
+                                                  : '#94a3b8'
+                                            } 
+                                          />
+                                        </marker>
+                                      </defs>
+
+                                      {/* Draw connection edges */}
+                                      {activeDiagram.edges?.map((edge) => {
+                                        const sourceNode = activeDiagram.nodes.find(n => n.id === edge.source);
+                                        const targetNode = activeDiagram.nodes.find(n => n.id === edge.target);
+                                        
+                                        if (!sourceNode || !targetNode) return null;
+                                        
+                                        let pathD = `M ${sourceNode.x} ${sourceNode.y} L ${targetNode.x} ${targetNode.y}`;
+                                        
+                                        const midX = (sourceNode.x + targetNode.x) / 2;
+                                        const midY = (sourceNode.y + targetNode.y) / 2;
+                                        
+                                        return (
+                                          <g key={edge.id} className="group transition-opacity duration-300">
+                                            <path
+                                              d={pathD}
+                                              fill="none"
+                                              stroke={
+                                                activeDiagram.diagram_style.toLowerCase().includes('ieee') 
+                                                  ? '#000000' 
+                                                  : activeDiagram.diagram_style.toLowerCase().includes('dark')
+                                                    ? '#475569'
+                                                    : '#cbd5e1'
+                                              }
+                                              strokeWidth={activeDiagram.diagram_style.toLowerCase().includes('ieee') ? '1.5' : '2.5'}
+                                              markerEnd="url(#arrow)"
+                                              className="group-hover:stroke-pastel-accent transition-colors"
+                                            />
+                                            
+                                            {edge.label && (
+                                              <g>
+                                                <rect
+                                                  x={midX - 45}
+                                                  y={midY - 9}
+                                                  width="90"
+                                                  height="18"
+                                                  rx="4"
+                                                  fill={activeDiagram.diagram_style.toLowerCase().includes('dark') ? '#0f172a' : '#ffffff'}
+                                                  stroke={
+                                                    activeDiagram.diagram_style.toLowerCase().includes('ieee')
+                                                      ? '#000000'
+                                                      : activeDiagram.diagram_style.toLowerCase().includes('dark')
+                                                        ? '#334155'
+                                                        : '#e2e8f0'
+                                                  }
+                                                  strokeWidth="1"
+                                                />
+                                                <text
+                                                  x={midX}
+                                                  y={midY + 3}
+                                                  textAnchor="middle"
+                                                  className="text-[9px] font-black tracking-wider uppercase select-none pointer-events-none fill-gray-500 dark:fill-gray-400"
+                                                >
+                                                  {edge.label}
+                                                </text>
+                                              </g>
+                                            )}
+                                          </g>
+                                        );
+                                      })}
+
+                                      {/* Draw nodes */}
+                                      {activeDiagram.nodes?.map((node) => {
+                                        const isDragging = draggingNodeId === node.id;
+                                        const fillHex = node.color || "#6366f1";
+                                        
+                                        const w = 150;
+                                        const h = 50;
+                                        
+                                        return (
+                                          <g
+                                            key={node.id}
+                                            transform={`translate(${node.x}, ${node.y})`}
+                                            className="cursor-grab active:cursor-grabbing group"
+                                            onMouseDown={(e) => handleNodeDragStart(e, node.id)}
+                                          >
+                                            {activeDiagram.diagram_style.toLowerCase().includes('ieee') ? (
+                                              <rect
+                                                x={-w/2}
+                                                y={-h/2}
+                                                width={w}
+                                                height={h}
+                                                fill="#ffffff"
+                                                stroke="#000000"
+                                                strokeWidth="1.5"
+                                              />
+                                            ) : (
+                                              <rect
+                                                x={-w/2}
+                                                y={-h/2}
+                                                width={w}
+                                                height={h}
+                                                rx="12"
+                                                fill={activeDiagram.diagram_style.toLowerCase().includes('dark') ? '#1e293b' : '#ffffff'}
+                                                stroke={isDragging ? '#ec4899' : fillHex}
+                                                strokeWidth={isDragging ? '3' : '2'}
+                                                className="shadow-md hover:shadow-lg transition-shadow duration-200"
+                                              />
+                                            )}
+                                            
+                                            {!activeDiagram.diagram_style.toLowerCase().includes('ieee') && (
+                                              <circle
+                                                cx={-w/2 + 18}
+                                                cy="0"
+                                                r="5"
+                                                fill={fillHex}
+                                                className="animate-pulse"
+                                              />
+                                            )}
+
+                                            <text
+                                              x={activeDiagram.diagram_style.toLowerCase().includes('ieee') ? 0 : 8}
+                                              y="3"
+                                              textAnchor="middle"
+                                              className={`text-[10px] font-bold select-none pointer-events-none ${
+                                                activeDiagram.diagram_style.toLowerCase().includes('dark') ? 'fill-gray-100' : 'fill-slate-800'
+                                              }`}
+                                            >
+                                              {node.label}
+                                            </text>
+                                          </g>
+                                        );
+                                      })}
+                                    </svg>
+                                  </div>
+                                </div>
+
+                                {/* Right control side panel */}
+                                <div className="w-full lg:w-72 flex flex-col gap-5 flex-shrink-0 h-full overflow-y-auto pr-1">
+                                  
+                                  {/* Style selectors */}
+                                  <div className="p-4 rounded-3xl border bg-white dark:bg-pastel-darkCard dark:border-pastel-darkBorder shadow-sm space-y-4">
+                                    <div>
+                                      <label className="block text-[10px] font-black uppercase tracking-wider text-gray-400 mb-1.5">Diagram Name</label>
+                                      <input
+                                        type="text"
+                                        value={activeDiagram.name}
+                                        onChange={(e) => {
+                                          const updated = { ...activeDiagram, name: e.target.value };
+                                          setActiveDiagram(updated);
+                                          handleSaveActiveDiagram(updated);
+                                        }}
+                                        className="w-full px-3 py-2 text-xs font-bold rounded-xl border bg-gray-50 dark:bg-slate-800 border-gray-150 dark:border-pastel-darkBorder focus:outline-none text-gray-700 dark:text-gray-250"
+                                      />
+                                    </div>
+
+                                    <div>
+                                      <label className="block text-[10px] font-black uppercase tracking-wider text-gray-400 mb-1.5">Presentation Style</label>
+                                      <select
+                                        value={activeDiagram.diagram_style}
+                                        onChange={(e) => {
+                                          const updated = { ...activeDiagram, diagram_style: e.target.value };
+                                          setActiveDiagram(updated);
+                                          handleSaveActiveDiagram(updated);
+                                        }}
+                                        className="w-full px-3 py-2 text-xs font-bold rounded-xl border bg-gray-50 dark:bg-slate-800 border-gray-150 dark:border-pastel-darkBorder text-gray-700 dark:text-gray-250 focus:outline-none"
+                                      >
+                                        <option value="Academic Block Diagram">Academic Block Diagram</option>
+                                        <option value="Flowchart">Flowchart</option>
+                                        <option value="Horizontal Pipeline">Horizontal Pipeline</option>
+                                        <option value="Vertical Pipeline">Vertical Pipeline</option>
+                                        <option value="Minimal Theme">Minimal Theme</option>
+                                        <option value="IEEE Style">IEEE Style</option>
+                                        <option value="Research Paper Style">Research Paper Style</option>
+                                        <option value="Presentation Style">Presentation Style</option>
+                                        <option value="Dark Theme">Dark Theme</option>
+                                        <option value="Light Theme">Light Theme</option>
+                                      </select>
+                                    </div>
+                                  </div>
+
+                                  {/* Node editor */}
+                                  <div className="p-4 rounded-3xl border bg-white dark:bg-pastel-darkCard dark:border-pastel-darkBorder shadow-sm space-y-3.5">
+                                    <div className="flex items-center justify-between">
+                                      <label className="block text-[10px] font-black uppercase tracking-wider text-gray-400">Node Blocks</label>
+                                      <button
+                                        type="button"
+                                        onClick={handleAddNewNode}
+                                        className="px-2.5 py-1 bg-pastel-accent hover:bg-pastel-accent/90 text-white text-[9px] font-black rounded-lg transition-all"
+                                      >
+                                        + Add Block
+                                      </button>
+                                    </div>
+
+                                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                                      {activeDiagram.nodes?.map((node) => (
+                                        <div key={node.id} className="p-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-gray-150 dark:border-slate-800 space-y-1.5 text-xs text-left">
+                                          <div className="flex items-center justify-between">
+                                            <input
+                                              type="text"
+                                              value={node.label}
+                                              onChange={(e) => handleUpdateNodeLabel(node.id, e.target.value)}
+                                              onBlur={() => handleSaveActiveDiagram(activeDiagram)}
+                                              className="bg-transparent border-none font-bold text-gray-700 dark:text-gray-200 outline-none p-0 focus:ring-0 truncate w-32"
+                                            />
+                                            <button
+                                              type="button"
+                                              onClick={() => handleDeleteNode(node.id)}
+                                              className="text-gray-400 hover:text-red-500"
+                                            >
+                                              <Trash2 className="w-3.5 h-3.5" />
+                                            </button>
+                                          </div>
+                                          <div className="flex items-center space-x-1.5">
+                                            <span className="text-[8px] uppercase font-bold text-gray-450">Color:</span>
+                                            {["#6366f1", "#ec4899", "#10b981", "#8b5cf6", "#f97316"].map(c => (
+                                              <button
+                                                key={c}
+                                                type="button"
+                                                onClick={() => handleUpdateNodeColor(node.id, c)}
+                                                className={`w-3.5 h-3.5 rounded-full border border-white dark:border-slate-800 ${
+                                                  node.color === c ? 'ring-2 ring-pastel-accent' : ''
+                                                }`}
+                                                style={{ backgroundColor: c }}
+                                              />
+                                            ))}
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+
+                                  {/* Link edge connector */}
+                                  <div className="p-4 rounded-3xl border bg-white dark:bg-pastel-darkCard dark:border-pastel-darkBorder shadow-sm space-y-3.5">
+                                    <label className="block text-[10px] font-black uppercase tracking-wider text-gray-400">Add Connection</label>
+                                    
+                                    <form onSubmit={handleAddNewEdge} className="space-y-2">
+                                      <select
+                                        required
+                                        value={newEdgeSource}
+                                        onChange={(e) => setNewEdgeSource(e.target.value)}
+                                        className="w-full px-2.5 py-1.5 text-xs font-bold rounded-xl border bg-slate-50 dark:bg-slate-805 border-gray-150 dark:border-pastel-darkBorder text-gray-750 dark:text-gray-250 focus:outline-none"
+                                      >
+                                        <option value="">-- Source --</option>
+                                        {activeDiagram.nodes?.map(n => (
+                                          <option key={n.id} value={n.id}>{n.label}</option>
+                                        ))}
+                                      </select>
+                                      
+                                      <select
+                                        required
+                                        value={newEdgeTarget}
+                                        onChange={(e) => setNewEdgeTarget(e.target.value)}
+                                        className="w-full px-2.5 py-1.5 text-xs font-bold rounded-xl border bg-slate-50 dark:bg-slate-805 border-gray-150 dark:border-pastel-darkBorder text-gray-750 dark:text-gray-250 focus:outline-none"
+                                      >
+                                        <option value="">-- Target --</option>
+                                        {activeDiagram.nodes?.map(n => (
+                                          <option key={n.id} value={n.id}>{n.label}</option>
+                                        ))}
+                                      </select>
+
+                                      <div className="flex gap-2">
+                                        <input
+                                          type="text"
+                                          placeholder="Flow text (opt)"
+                                          value={newEdgeLabel}
+                                          onChange={(e) => setNewEdgeLabel(e.target.value)}
+                                          className="flex-1 px-2.5 py-1.5 text-xs font-bold rounded-xl border bg-slate-50 dark:bg-slate-805 border-gray-150 dark:border-pastel-darkBorder text-gray-750 dark:text-gray-250 focus:outline-none"
+                                        />
+                                        <button
+                                          type="submit"
+                                          className="px-3 py-1.5 bg-pastel-accent hover:bg-pastel-accent/90 text-white text-xs font-bold rounded-xl transition-all flex-shrink-0"
+                                        >
+                                          Link
+                                        </button>
+                                      </div>
+                                    </form>
+
+                                    <div className="space-y-1 max-h-36 overflow-y-auto pr-1 text-xs">
+                                      {activeDiagram.edges?.map((edge) => {
+                                        const s = activeDiagram.nodes.find(n => n.id === edge.source)?.label || "Dangling";
+                                        const t = activeDiagram.nodes.find(n => n.id === edge.target)?.label || "Dangling";
+                                        return (
+                                          <div key={edge.id} className="flex items-center justify-between p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-900 border border-transparent hover:border-gray-100 dark:hover:border-slate-800 text-left">
+                                            <span className="text-[10px] text-gray-550 truncate w-40">
+                                              <strong>{s}</strong> → <strong>{t}</strong>
+                                            </span>
+                                            <button
+                                              type="button"
+                                              onClick={() => handleDeleteEdge(edge.id)}
+                                              className="text-gray-400 hover:text-red-500"
+                                            >
+                                              <X className="w-3 h-3" />
+                                            </button>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+
+                                  {/* Insert & Export Options */}
+                                  <div className="p-4 rounded-3xl border bg-white dark:bg-pastel-darkCard dark:border-pastel-darkBorder shadow-sm space-y-3.5">
+                                    <button
+                                      type="button"
+                                      onClick={handleInsertDiagramIntoThesis}
+                                      className="w-full py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white text-xs font-black rounded-xl transition-all shadow-sm flex items-center justify-center space-x-1.5 hover-scale"
+                                    >
+                                      <FileText className="w-4 h-4" />
+                                      <span>Insert into Thesis</span>
+                                    </button>
+
+                                    <div className="grid grid-cols-3 gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={handleExportPNG}
+                                        className="py-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-gray-650 dark:text-gray-300 text-[10px] font-black rounded-lg border border-gray-200 dark:border-pastel-darkBorder transition-all"
+                                      >
+                                        PNG
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={handleExportSVG}
+                                        className="py-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-gray-650 dark:text-gray-300 text-[10px] font-black rounded-lg border border-gray-200 dark:border-pastel-darkBorder transition-all"
+                                      >
+                                        SVG
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={handleExportJSON}
+                                        className="py-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-gray-650 dark:text-gray-300 text-[10px] font-black rounded-lg border border-gray-200 dark:border-pastel-darkBorder transition-all"
+                                      >
+                                        JSON
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                </div>
+                              </div>
+                            )}
+
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -3520,6 +4441,131 @@ export default function Dashboard() {
                 className="px-5 py-2 rounded-xl text-xs font-bold bg-pastel-accent text-white hover:bg-pastel-accent/95 hover-scale shadow-sm disabled:opacity-50"
               >
                 Close Report
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI DIAGRAM GENERATION OPTION SELECTION MODAL */}
+      {showDiagramModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className={`w-full max-w-md rounded-3xl overflow-hidden p-6 shadow-2xl transition-all duration-300 border flex flex-col ${
+            isDark ? 'bg-pastel-darkCard border-pastel-darkBorder text-gray-200' : 'bg-white text-gray-800 border-gray-150'
+          }`}>
+            
+            {/* Header */}
+            <div className="flex items-center justify-between border-b pb-3.5 mb-4 dark:border-pastel-darkBorder">
+              <div className="flex items-center space-x-2">
+                <Network className="w-5 h-5 text-pastel-accent" />
+                <h3 className="font-extrabold text-sm text-pastel-accent leading-snug">
+                  Create Research Diagram
+                </h3>
+              </div>
+              <button 
+                onClick={() => setShowDiagramModal(false)}
+                className={`p-1.5 rounded-lg border hover-scale flex-shrink-0 ${
+                  isDark ? 'border-pastel-darkBorder hover:bg-gray-800 text-gray-400' : 'border-gray-150 hover:bg-gray-55 text-gray-505'
+                }`}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Selection info */}
+            {diagramSelectionText ? (
+              <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl text-left">
+                <span className="text-[9px] font-black uppercase text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded tracking-wider">
+                  Text Excerpt Selected
+                </span>
+                <p className="text-[10px] text-gray-500 dark:text-gray-400 italic mt-1.5 line-clamp-3">
+                  "{diagramSelectionText}"
+                </p>
+              </div>
+            ) : (
+              <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-left">
+                <span className="text-[9px] font-black uppercase text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded tracking-wider">
+                  No Selection - Using Full Draft
+                </span>
+                <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1 leading-normal">
+                  The diagram will be generated by analyzing your entire thesis draft. Highlight a specific paragraph first to target a specific section.
+                </p>
+              </div>
+            )}
+
+            {/* Context recommendations */}
+            {recommendedReason && (
+              <div className="mb-4 p-3 bg-gradient-to-r from-pastel-pink/10 to-pastel-green/10 border border-pastel-pink/15 rounded-2xl text-left text-xs space-y-1">
+                <p className="font-extrabold text-pastel-accent uppercase text-[9px] tracking-wider">Heuristic Recommendation</p>
+                <p className="text-gray-700 dark:text-gray-300 font-medium">
+                  We suggest generating a <span className="font-bold text-pastel-accent">{recommendedDiagramType}</span>.
+                </p>
+                <p className="text-[10px] text-gray-400 italic font-medium leading-relaxed">* {recommendedReason}</p>
+              </div>
+            )}
+
+            {/* Form */}
+            <div className="space-y-4 text-left">
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-wider text-gray-400 mb-1.5">Diagram Type</label>
+                <select
+                  value={diagramType}
+                  onChange={(e) => setDiagramType(e.target.value)}
+                  className="w-full px-3 py-2 text-xs font-bold rounded-xl border bg-slate-50 dark:bg-slate-800 border-gray-150 dark:border-pastel-darkBorder text-gray-750 dark:text-gray-250 focus:outline-none"
+                >
+                  <option value="System Architecture">System Architecture</option>
+                  <option value="Workflow Diagram">Workflow Diagram</option>
+                  <option value="Research Pipeline">Research Pipeline</option>
+                  <option value="Methodology Flowchart">Methodology Flowchart</option>
+                  <option value="Experimental Setup">Experimental Setup</option>
+                  <option value="Data Flow Diagram">Data Flow Diagram</option>
+                  <option value="Block Diagram">Block Diagram</option>
+                  <option value="Sequence Diagram">Sequence Diagram</option>
+                  <option value="Class Diagram">Class Diagram</option>
+                  <option value="Entity Relationship Diagram (ERD)">Entity Relationship Diagram (ERD)</option>
+                  <option value="Network Architecture">Network Architecture</option>
+                  <option value="Deployment Architecture">Deployment Architecture</option>
+                  <option value="Timeline Diagram">Timeline Diagram</option>
+                  <option value="Decision Flowchart">Decision Flowchart</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-wider text-gray-400 mb-1.5">Visual Presentation Style</label>
+                <select
+                  value={diagramStyle}
+                  onChange={(e) => setDiagramStyle(e.target.value)}
+                  className="w-full px-3 py-2 text-xs font-bold rounded-xl border bg-slate-50 dark:bg-slate-800 border-gray-150 dark:border-pastel-darkBorder text-gray-750 dark:text-gray-250 focus:outline-none"
+                >
+                  <option value="Academic Block Diagram">Academic Block Diagram</option>
+                  <option value="Flowchart">Flowchart</option>
+                  <option value="Horizontal Pipeline">Horizontal Pipeline</option>
+                  <option value="Vertical Pipeline">Vertical Pipeline</option>
+                  <option value="Minimal Theme">Minimal Theme</option>
+                  <option value="IEEE Style">IEEE Style</option>
+                  <option value="Research Paper Style">Research Paper Style</option>
+                  <option value="Presentation Style">Presentation Style</option>
+                  <option value="Dark Theme">Dark Theme</option>
+                  <option value="Light Theme">Light Theme</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end space-x-2.5 mt-6 border-t pt-4 dark:border-pastel-darkBorder">
+              <button
+                onClick={() => setShowDiagramModal(false)}
+                className={`px-4 py-2 text-xs font-bold rounded-xl border hover-scale ${
+                  isDark ? 'border-pastel-darkBorder text-gray-400 hover:bg-gray-800' : 'border-gray-150 text-gray-500 hover:bg-gray-50'
+                }`}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleGenerateDiagram}
+                className="px-5 py-2 text-xs font-bold bg-pastel-accent hover:bg-pastel-accent/95 text-white rounded-xl shadow-sm hover-scale"
+              >
+                Generate Diagram
               </button>
             </div>
 

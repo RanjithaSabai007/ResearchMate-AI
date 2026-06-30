@@ -335,4 +335,74 @@ def delete_novelty_analysis(db: Session, analysis_id: int, project_id: int):
         db.delete(db_analysis)
         db.commit()
         return True
+    return False
+
+
+def get_project_diagrams(db: Session, project_id: int):
+    return (
+        db.query(models.Diagram)
+        .filter(models.Diagram.project_id == project_id)
+        .order_by(models.Diagram.created_at.desc())
+        .all()
+    )
+
+
+def get_diagram(db: Session, diagram_id: int, project_id: int):
+    return (
+        db.query(models.Diagram)
+        .filter(models.Diagram.id == diagram_id, models.Diagram.project_id == project_id)
+        .first()
+    )
+
+
+def create_diagram(
+    db: Session,
+    project_id: int,
+    name: str,
+    diagram_type: str,
+    diagram_style: str,
+    nodes: list,
+    edges: list
+):
+    db_diagram = models.Diagram(
+        project_id=project_id,
+        name=name,
+        diagram_type=diagram_type,
+        diagram_style=diagram_style,
+        nodes=json.dumps(nodes),
+        edges=json.dumps(edges)
+    )
+    db.add(db_diagram)
+    db.commit()
+    db.refresh(db_diagram)
+    return db_diagram
+
+
+def update_diagram(
+    db: Session,
+    diagram_id: int,
+    project_id: int,
+    name: str,
+    diagram_style: str,
+    nodes: list,
+    edges: list
+):
+    db_diagram = get_diagram(db, diagram_id, project_id)
+    if db_diagram:
+        db_diagram.name = name
+        db_diagram.diagram_style = diagram_style
+        db_diagram.nodes = json.dumps(nodes)
+        db_diagram.edges = json.dumps(edges)
+        db.commit()
+        db.refresh(db_diagram)
+        return db_diagram
+    return None
+
+
+def delete_diagram(db: Session, diagram_id: int, project_id: int):
+    db_diagram = get_diagram(db, diagram_id, project_id)
+    if db_diagram:
+        db.delete(db_diagram)
+        db.commit()
+        return True
     return False

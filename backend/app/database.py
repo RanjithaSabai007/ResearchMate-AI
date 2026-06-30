@@ -159,6 +159,24 @@ def run_migrations():
             """))
             conn.commit()
             print("Novelty analyses table check/creation completed.")
+
+            # 8. Ensure diagrams table exists
+            print("Ensuring diagrams table exists...")
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS diagrams (
+                    id SERIAL PRIMARY KEY,
+                    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                    name VARCHAR(255) NOT NULL,
+                    diagram_type VARCHAR(50) NOT NULL,
+                    diagram_style VARCHAR(50) NOT NULL,
+                    nodes TEXT NOT NULL,
+                    edges TEXT NOT NULL,
+                    created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT (NOW() AT TIME ZONE 'UTC'),
+                    updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT (NOW() AT TIME ZONE 'UTC')
+                );
+            """))
+            conn.commit()
+            print("Diagrams table check/creation completed.")
     except Exception as e:
         print(f"Database auto-migration warning: {e}")
 

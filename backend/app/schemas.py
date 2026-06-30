@@ -295,3 +295,57 @@ class NoveltyAnalysisResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class DiagramCreate(BaseModel):
+    name: str
+    diagram_type: str
+    diagram_style: str
+    nodes: List[dict]
+    edges: List[dict]
+
+
+class DiagramGenerateRequest(BaseModel):
+    diagram_type: str
+    diagram_style: str
+    selected_text: Optional[str] = None
+
+
+class DiagramResponse(BaseModel):
+    id: int
+    project_id: int
+    name: str
+    diagram_type: str
+    diagram_style: str
+    nodes: List[dict]
+    edges: List[dict]
+    created_at: datetime
+    updated_at: datetime
+
+    @model_validator(mode='before')
+    @classmethod
+    def parse_json_fields(cls, data):
+        def val(f):
+            if isinstance(data, dict):
+                return data.get(f)
+            return getattr(data, f, None)
+            
+        nodes_val = val("nodes")
+        if nodes_val is not None:
+            edges_val = val("edges")
+            
+            return {
+                "id": val("id"),
+                "project_id": val("project_id"),
+                "name": val("name"),
+                "diagram_type": val("diagram_type"),
+                "diagram_style": val("diagram_style"),
+                "nodes": json.loads(nodes_val) if isinstance(nodes_val, str) else (nodes_val or []),
+                "edges": json.loads(edges_val) if isinstance(edges_val, str) else (edges_val or []),
+                "created_at": val("created_at"),
+                "updated_at": val("updated_at")
+            }
+        return data
+
+    class Config:
+        from_attributes = True

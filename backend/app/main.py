@@ -1493,3 +1493,158 @@ def generate_project_presentation(
         media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation"
     )
 
+
+# --- AI Diagram Generator Endpoints ---
+
+@app.post("/api/projects/{project_id}/diagrams/generate", response_model=schemas.ApiResponse[schemas.DiagramResponse], tags=["Diagrams"])
+def generate_diagram(
+    project_id: int,
+    req: schemas.DiagramGenerateRequest,
+    current_session: models.Session = Depends(get_current_session),
+    db: Session = Depends(get_db)
+):
+    # 1. Retrieve project and check ownership
+    project = crud.get_project(db, project_id, current_session.user_id)
+    if not project:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "status_code": 404,
+                "error_code": "PROJECT_NOT_FOUND",
+                "message": "The project could not be found."
+            }
+        )
+        
+    # 2. Determine target text content
+    text_content = req.selected_text.strip() if req.selected_text else ""
+    if not text_content:
+        # Fall back to project draft content
+        text_content = project.draft_content.strip()
+        
+    if not text_content:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "status_code": 400,
+                "error_code": "EMPTY_CONTENT",
+                "message": "Please select some text or write content in your thesis draft before generating a diagram."
+            }
+        )
+        
+    from app.services.diagram_service import generate_diagram_graph
+    
+    # 3. Log audit entry
+    crud.create_audit_log(
+        db,
+        action="GENERATE_DIAGRAM",
+        user_id=current_session.user_id,
+        session_id=current_session.id,
+        details=f"Generating diagram: {req.diagram_type} for project: {project.title}"
+    )
+    
+    # 4. Run AI generation (Ollama or fallback)
+    graph = generate_diagram_graph(project.title, text_content, req.diagram_type)
+    
+    # 5. Create database record
+    from datetime import datetime
+    time_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    name = f"Generated {req.diagram_type} ({time_str})"
+    
+    db_diagram = crud.create_diagram(
+        db,
+        project_id=project_id,
+        name=name,
+        diagram_type=req.diagram_type,
+        diagram_style=req.diagram_style,
+        nodes=graph["nodes"],
+        edges=graph["edges"]
+    )
+    
+    return {
+        "success": True,
+        "data": db_diagram,
+        "error_code": None,
+        "message": "Diagram successfully generated."
+    }
+
+
+@app.get("/api/projects/{project_id}/diagrams", response_model=schemas.ApiResponse[list[schemas.DiagramResponse]], tags=["Diagrams"])
+def get_diagrams(
+    project_id: int,
+    current_session: models.Session = Depends(get_current_session),
+    db: Session = Depends(get_db)
+):
+    project = crud.get_project(db, project_id, current_session.user_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    diagrams = crud.get_project_diagrams(db, project_id)
+    return {
+        "success": True,
+        "data": diagrams,
+        "error_code": None,
+        "message": "Diagrams retrieved successfully."
+    }
+
+
+@app.put("/api/projects/{project_id}/diagrams/{diagram_id}", response_model=schemas.ApiResponse[schemas.DiagramResponse], tags=["Diagrams"])
+def update_project_diagram(
+    project_id: int,
+    diagram_id: int,
+    req: schemas.DiagramCreate,
+    current_session: models.Session = Depends(get_current_session),
+    db: Session = Depends(get_db)
+):
+    project = crud.get_project(db, project_id, current_session.user_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    db_diagram = crud.update_diagram(
+        db,
+        diagram_id=diagram_id,
+        project_id=project_id,
+        name=req.name,
+        diagram_style=req.diagram_style,
+        nodes=req.nodes,
+        edges=req.edges
+    )
+    if not db_diagram:
+        raise HTTPException(status_code=404, detail="Diagram not found")
+        
+    return {
+        "success": True,
+        "data": db_diagram,
+        "error_code": None,
+        "message": "Diagram successfully updated."
+    }
+
+
+@app.delete("/api/projects/{project_id}/diagrams/{diagram_id}", response_model=schemas.ApiResponse[dict], tags=["Diagrams"])
+def delete_project_diagram(
+    project_id: int,
+    diagram_id: int,
+    current_session: models.Session = Depends(get_current_session),
+    db: Session = Depends(get_db)
+):
+    project = crud.get_project(db, project_id, current_session.user_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    success = crud.delete_diagram(db, diagram_id, project_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Diagram not found")
+        
+    crud.create_audit_log(
+        db,
+        action="DELETE_DIAGRAM",
+        user_id=current_session.user_id,
+        session_id=current_session.id,
+        details=f"Deleted diagram: {diagram_id} in project: {project.title}"
+    )
+    return {
+        "success": True,
+        "data": {"message": "Diagram successfully deleted."},
+        "error_code": None,
+        "message": "Diagram deleted successfully."
+    }
+

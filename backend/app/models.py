@@ -192,6 +192,12 @@ class Project(Base):
         cascade="all, delete-orphan"
     )
 
+    diagrams = relationship(
+        "Diagram",
+        back_populates="project",
+        cascade="all, delete-orphan"
+    )
+
 
 class Paper(Base):
     __tablename__ = "papers"
@@ -347,4 +353,34 @@ class NoveltyAnalysis(Base):
     project = relationship(
         "Project",
         back_populates="novelty_analyses"
+    )
+
+
+class Diagram(Base):
+    __tablename__ = "diagrams"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(
+        Integer,
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False
+    )
+    name = Column(String, nullable=False)
+    diagram_type = Column(String(50), nullable=False)
+    diagram_style = Column(String(50), nullable=False)
+    nodes = Column(Text, nullable=False)  # JSON string
+    edges = Column(Text, nullable=False)  # JSON string
+    created_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc)
+    )
+
+    project = relationship(
+        "Project",
+        back_populates="diagrams"
     )
