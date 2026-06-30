@@ -35,7 +35,9 @@ import {
   Sparkles,
   Star,
   Check,
-  AlertTriangle
+  AlertTriangle,
+  Presentation,
+  History,
 } from 'lucide-react';
 
 export default function Dashboard() {
@@ -118,6 +120,10 @@ export default function Dashboard() {
   const [noveltyMessage, setNoveltyMessage] = useState('');
   const [showNoveltyModal, setShowNoveltyModal] = useState(false);
   const [loadingNoveltyHistory, setLoadingNoveltyHistory] = useState(false);
+
+  // Thesis Presentation Generator state
+  const [generatingPresentation, setGeneratingPresentation] = useState(false);
+  const [presentationMessage, setPresentationMessage] = useState('');
 
   // Audit and sessions state
   const [sessionsCount, setSessionsCount] = useState(1);
@@ -473,6 +479,92 @@ export default function Dashboard() {
     } catch (err) {
       console.error("Failed to delete novelty report:", err);
     }
+  };
+
+  const handleViewNoveltyHistory = () => {
+    if (!selectedProject) return;
+    fetchNoveltyReports(selectedProject.id);
+    setShowNoveltyModal(true);
+  };
+
+  const handleGeneratePresentation = async () => {
+    if (!selectedProject) return;
+    
+    // Auto-save first
+    await handleSaveDraft();
+    
+    setGeneratingPresentation(true);
+    setPresentationMessage("Initializing outline extraction...");
+    
+    const messages = [
+      "Analyzing thesis document structure...",
+      "Identifying chapters and sections...",
+      "Condensing paragraphs into concise bullets...",
+      "Creating slide hierarchy...",
+      "Writing PowerPoint layout styles...",
+      "Finalizing PPTX presentation..."
+    ];
+    let msgIndex = 0;
+    const msgInterval = setInterval(() => {
+      if (msgIndex < messages.length) {
+        setPresentationMessage(messages[msgIndex]);
+        msgIndex++;
+      }
+    }, 3000);
+    
+    try {
+      const response = await api.post(`/api/projects/${selectedProject.id}/presentation`, {}, {
+        responseType: 'blob'
+      });
+      const blob = new Blob([response.data], { 
+        type: "application/vnd.openxmlformats-officedocument.presentationml.presentation" 
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      
+      const safeTitle = (draftTitle || "Thesis").trim().replace(/\s+/g, "_");
+      a.download = `${safeTitle}_presentation.pptx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Presentation generation failed:", err);
+      alert("Presentation generation failed: " + (err.response?.data?.message || err.message));
+    } finally {
+      clearInterval(msgInterval);
+      setGeneratingPresentation(false);
+      setPresentationMessage("");
+    }
+  };
+
+  const handleDownloadDraft = (format) => {
+    let content = "";
+    let filename = `${draftTitle.trim().replace(/\s+/g, "_") || "Thesis_Draft"}`;
+    let mimeType = "";
+    
+    if (format === "txt") {
+      const tempDiv = document.createElement("div");
+      tempDiv.innerHTML = draftContent;
+      content = tempDiv.textContent || tempDiv.innerText || "";
+      filename += ".txt";
+      mimeType = "text/plain";
+    } else {
+      content = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${draftTitle}</title><style>body { font-family: system-ui, -apple-system, sans-serif; line-height: 1.6; max-width: 800px; margin: 40px auto; padding: 0 20px; color: #1e293b; }</style></head><body><h1>${draftTitle}</h1>${draftContent}</body></html>`;
+      filename += ".html";
+      mimeType = "text/html";
+    }
+    
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   };
 
   // --- Draft Editor (Microsoft Word-like) Operations ---
@@ -1214,17 +1306,76 @@ export default function Dashboard() {
                             </button>
                           </div>
 
-                          {/* Action manual saves & novelty analysis */}
-                          <div className="flex items-center space-x-2">
+                          {/* Action manual saves, downloads, presentation & novelty */}
+                          <div className="flex flex-wrap items-center gap-2">
+                            {/* Draft Downloads Group */}
+                            <div className="flex items-center space-x-1 bg-gray-100 dark:bg-slate-800 p-0.5 rounded-xl border dark:border-pastel-darkBorder shadow-sm">
+                              <button
+                                type="button"
+                                onClick={() => handleDownloadDraft('html')}
+                                className="flex items-center space-x-1 px-2.5 py-1.5 text-xs font-bold text-gray-650 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-700 rounded-lg transition-all"
+                                title="Download draft as formatted HTML web document"
+                              >
+                                <Download className="w-3 h-3" />
+                                <span>HTML Draft</span>
+                              </button>
+                              <div className="w-[1px] h-3.5 bg-gray-300 dark:bg-gray-600" />
+                              <button
+                                type="button"
+                                onClick={() => handleDownloadDraft('txt')}
+                                className="flex items-center space-x-1 px-2.5 py-1.5 text-xs font-bold text-gray-650 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-700 rounded-lg transition-all"
+                                title="Download draft as plain text document"
+                              >
+                                <FileText className="w-3 h-3" />
+                                <span>TXT</span>
+                              </button>
+                            </div>
+
+                            {/* Presentation Generator */}
+                            <button
+                              type="button"
+                              onClick={handleGeneratePresentation}
+                              disabled={generatingPresentation}
+                              className="flex items-center space-x-1.5 px-3 py-2 text-xs font-bold rounded-xl transition-all shadow-sm bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-550 hover:to-indigo-650 text-white hover-scale disabled:opacity-50"
+                              title="Generate PowerPoint slide deck from this draft"
+                            >
+                              {generatingPresentation ? (
+                                <>
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                                  <span>Slides...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Presentation className="w-3.5 h-3.5 text-white" />
+                                  <span>Generate Presentation</span>
+                                </>
+                              )}
+                            </button>
+
+                            {/* Novelty Analyzer Buttons */}
                             <button
                               type="button"
                               onClick={handleAnalyzeNovelty}
-                              className="flex items-center space-x-1.5 px-4 py-2 text-xs font-bold rounded-xl transition-all shadow-sm bg-gradient-to-r from-pastel-pink to-pastel-accent text-white hover-scale"
+                              className="flex items-center space-x-1.5 px-3.5 py-2 text-xs font-bold rounded-xl transition-all shadow-sm bg-gradient-to-r from-pastel-pink to-pastel-accent text-white hover-scale"
                               title="Analyze the novelty of this draft against reference papers"
                             >
                               <Sparkles className="w-3.5 h-3.5 text-white animate-pulse" />
                               <span>Analyze Novelty</span>
                             </button>
+                            
+                            <button
+                              type="button"
+                              onClick={handleViewNoveltyHistory}
+                              className={`flex items-center space-x-1.5 px-3 py-2 text-xs font-bold rounded-xl transition-all border hover-scale ${
+                                isDark ? 'border-pastel-darkBorder hover:bg-gray-800 text-gray-300' : 'border-gray-200 hover:bg-gray-50 text-gray-600'
+                              }`}
+                              title="View previous novelty reports history"
+                            >
+                              <History className="w-3.5 h-3.5" />
+                              <span>Novelty History</span>
+                            </button>
+
+                            {/* Save Draft */}
                             <button
                               onClick={handleSaveDraft}
                               disabled={saveStatus === 'saved' || saveStatus === 'saving'}
@@ -3144,7 +3295,7 @@ export default function Dashboard() {
                           2. Most Similar Papers (Overlap Callouts)
                         </h4>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {activeNoveltyReport.analysis_report.most_similar_papers.map((paper, i) => (
+                          {activeNoveltyReport.analysis_report?.most_similar_papers?.map((paper, i) => (
                             <div key={i} className="p-4 rounded-2xl border border-gray-150 dark:border-pastel-darkBorder flex items-start justify-between gap-4 bg-slate-50/30 dark:bg-slate-900/10">
                               <div className="space-y-1 min-w-0">
                                 <p className="font-bold text-xs text-gray-700 dark:text-gray-200 truncate">{paper.title}</p>
@@ -3168,7 +3319,7 @@ export default function Dashboard() {
                           3. Common Research Themes
                         </h4>
                         <div className="flex flex-wrap gap-1.5">
-                          {activeNoveltyReport.analysis_report.common_themes.map((theme, i) => (
+                          {activeNoveltyReport.analysis_report?.common_themes?.map((theme, i) => (
                             <span 
                               key={i} 
                               className="px-2.5 py-1 text-[10px] font-bold rounded-lg bg-pastel-pink/20 text-pastel-accent border border-pastel-pink/30"
@@ -3191,7 +3342,7 @@ export default function Dashboard() {
                             <div>Current Reference Papers</div>
                             <div className="border-l border-gray-150 dark:border-pastel-darkBorder pl-3">Your Thesis Draft</div>
                           </div>
-                          {activeNoveltyReport.analysis_report.potential_contributions.map((item, i) => (
+                          {activeNoveltyReport.analysis_report?.potential_contributions?.map((item, i) => (
                             <div key={i} className="grid grid-cols-2 p-3.5 leading-relaxed text-gray-500 dark:text-gray-400">
                               <div className="pr-3">{item.current_papers}</div>
                               <div className="border-l border-gray-150 dark:border-pastel-darkBorder pl-3 font-semibold text-pastel-accent">
@@ -3215,7 +3366,7 @@ export default function Dashboard() {
                             5. Sections with High Overlap
                           </h4>
                           <div className="space-y-3">
-                            {activeNoveltyReport.analysis_report.similar_sections.map((item, i) => (
+                            {activeNoveltyReport.analysis_report?.similar_sections?.map((item, i) => (
                               <div key={i} className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
                                 <p className="font-extrabold uppercase text-[9px] tracking-wider text-rose-500">{item.section}</p>
                                 <p>{item.overlap}</p>
@@ -3234,7 +3385,7 @@ export default function Dashboard() {
                             6. Unique/Differentiated Sections
                           </h4>
                           <div className="space-y-3">
-                            {activeNoveltyReport.analysis_report.unique_sections.map((item, i) => (
+                            {activeNoveltyReport.analysis_report?.unique_sections?.map((item, i) => (
                               <div key={i} className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
                                 <p className="font-extrabold uppercase text-[9px] tracking-wider text-emerald-500">{item.section}</p>
                                 <p>{item.description}</p>
@@ -3251,12 +3402,12 @@ export default function Dashboard() {
                       <div className={`p-4 rounded-2xl border ${
                         isDark ? 'bg-slate-900/30 border-pastel-darkBorder' : 'bg-rose-500/5 border-rose-500/10'
                       }`}>
-                        <h4 className="text-xs font-black uppercase tracking-wider text-rose-600 dark:text-rose-450 mb-2.5 flex items-center space-x-1.5">
+                        <h4 className="text-xs font-black uppercase tracking-wider text-rose-600 dark:text-rose-455 mb-2.5 flex items-center space-x-1.5">
                           <AlertTriangle className="w-4.5 h-4.5 text-rose-500" />
                           <span>7. Suggested Thesis Extensions (Missing Elements)</span>
                         </h4>
                         <ul className="space-y-2">
-                          {activeNoveltyReport.analysis_report.missing_contributions.map((item, i) => (
+                          {activeNoveltyReport.analysis_report?.missing_contributions?.map((item, i) => (
                             <li key={i} className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed flex items-start space-x-2">
                               <span className="text-rose-500 font-bold mt-0.5">&bull;</span>
                               <span>{item}</span>
@@ -3279,7 +3430,7 @@ export default function Dashboard() {
                           <div className="p-3.5 bg-slate-50 dark:bg-slate-900/40 rounded-xl space-y-1">
                             <p className="font-extrabold uppercase text-[9px] tracking-wider text-gray-400">Gaps in Literature</p>
                             <ul className="space-y-1 text-gray-550 dark:text-gray-400">
-                              {activeNoveltyReport.analysis_report.gap_alignment.gaps_detected?.map((g, i) => (
+                              {activeNoveltyReport.analysis_report?.gap_alignment?.gaps_detected?.map((g, i) => (
                                 <li key={i} className="flex items-start space-x-1.5">
                                   <span className="text-gray-400">•</span>
                                   <span>{g}</span>
@@ -3292,7 +3443,7 @@ export default function Dashboard() {
                           <div className="p-3.5 bg-emerald-500/5 dark:bg-emerald-500/10 rounded-xl space-y-1">
                             <p className="font-extrabold uppercase text-[9px] tracking-wider text-emerald-600">Addressed by you</p>
                             <ul className="space-y-1 text-gray-550 dark:text-gray-400">
-                              {activeNoveltyReport.analysis_report.gap_alignment.addressed?.map((g, i) => (
+                              {activeNoveltyReport.analysis_report?.gap_alignment?.addressed?.map((g, i) => (
                                 <li key={i} className="flex items-start space-x-1.5">
                                   <span className="text-emerald-500 font-bold">✓</span>
                                   <span className="font-medium text-gray-700 dark:text-gray-255">{g}</span>
@@ -3305,7 +3456,7 @@ export default function Dashboard() {
                           <div className="p-3.5 bg-rose-500/5 dark:bg-rose-500/10 rounded-xl space-y-1">
                             <p className="font-extrabold uppercase text-[9px] tracking-wider text-rose-605">Still Missing</p>
                             <ul className="space-y-1 text-gray-550 dark:text-gray-400">
-                              {activeNoveltyReport.analysis_report.gap_alignment.missing?.map((g, i) => (
+                              {activeNoveltyReport.analysis_report?.gap_alignment?.missing?.map((g, i) => (
                                 <li key={i} className="flex items-start space-x-1.5">
                                   <span className="text-rose-500 font-bold">⚠️</span>
                                   <span>{g}</span>
@@ -3325,7 +3476,7 @@ export default function Dashboard() {
                           <span>9. Actionable Thesis Improvement Plan</span>
                         </h4>
                         <div className="space-y-2.5">
-                          {activeNoveltyReport.analysis_report.improvement_suggestions.map((sug, i) => (
+                          {activeNoveltyReport.analysis_report?.improvement_suggestions?.map((sug, i) => (
                             <div key={i} className="flex items-start space-x-2.5 text-xs">
                               <input
                                 type="checkbox"

@@ -1380,21 +1380,26 @@ def forgot_password(data: schemas.ForgotPasswordRequest, db: Session = Depends(g
     db_user.reset_otp_expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
     db.commit()
     
+    # Send reset OTP code via SMTP
+    from app.services.email_service import send_password_reset_email
+    email_sent = send_password_reset_email(db_user.email, db_user.username, otp)
+    
     # Log audit entry
     crud.create_audit_log(
         db,
         action="FORGOT_PASSWORD_REQUEST",
         user_id=db_user.id,
-        details=f"Forgot password request. Generated OTP code: {otp}"
+        details=f"Forgot password request. Generated OTP code: {otp}. Email sent successfully: {email_sent}"
     )
     
     return {
         "success": True,
         "data": {
-            "demo_otp": otp  # Exposed in payload for easy manual testing / validation
+            "demo_otp": otp,  # Exposed for local dev / testing convenience
+            "email_sent": email_sent
         },
         "error_code": None,
-        "message": "Reset code generated. Use the code to verify your request."
+        "message": "Reset code sent to your email. Use the code to verify your request."
     }
 
 @app.post("/api/auth/reset-password", response_model=schemas.ApiResponse[dict], tags=["Authentication"])
@@ -1450,4 +1455,42 @@ def reset_password(data: schemas.ResetPasswordRequest, db: Session = Depends(get
         "error_code": None,
         "message": "Password reset successful."
     }
+
+@app.post("/api/projects/{project_id}/presentation", tags=["Presentation"])
+def generate_project_presentation(
+    project_id: int, 
+    current_session: models.Session = Depends(get_current_session),
+    db: Session = Depends(get_db)
+):
+    from fastapi.responses import FileResponse
+    
+    # Retrieve project
+    project = crud.get_project(db, project_id, current_session.user_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    if not project.draft_title or not project.draft_content:
+        raise HTTPException(
+            status_code=400, 
+            detail="Your thesis draft is empty. Write some content before generating a presentation."
+        )
+        
+    from app.services.presentation_service import generate_presentation_outline, create_pptx_from_outline
+    
+    # 1. Generate structured slide outline (Ollama or fallback)
+    outline = generate_presentation_outline(project.draft_title, project.draft_content)
+    
+    # 2. Build the physical PPTX file
+    filepath = create_pptx_from_outline(project.draft_title, outline)
+    
+    # Clean filename
+    safe_title = "".join(c for c in project.draft_title if c.isalnum() or c in (" ", "_", "-")).strip()
+    safe_title = safe_title.replace(" ", "_")[:40]
+    filename = f"{safe_title}_presentation.pptx"
+    
+    return FileResponse(
+        path=filepath,
+        filename=filename,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    )
 
