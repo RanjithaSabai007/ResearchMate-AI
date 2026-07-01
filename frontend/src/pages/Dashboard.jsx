@@ -39,8 +39,88 @@ import {
   Presentation,
   History,
   Award,
-  Network
+  Network,
+  Table,
+  Image,
+  BarChart3,
+  Palette
 } from 'lucide-react';
+
+// --- Tiptap Core & Extensions Imports ---
+import { useEditor, EditorContent, Extension, Node } from '@tiptap/react';
+import StarterKit from '@tiptap/starter-kit';
+import UnderlineExtension from '@tiptap/extension-underline';
+import { Color } from '@tiptap/extension-color';
+import TextStyle from '@tiptap/extension-text-style';
+import Highlight from '@tiptap/extension-highlight';
+import Link from '@tiptap/extension-link';
+import ImageExtension from '@tiptap/extension-image';
+import TableExtension from '@tiptap/extension-table';
+import TableRow from '@tiptap/extension-table-row';
+import TableCell from '@tiptap/extension-table-cell';
+import TableHeader from '@tiptap/extension-table-header';
+import TaskList from '@tiptap/extension-task-list';
+import TaskItem from '@tiptap/extension-task-item';
+import Superscript from '@tiptap/extension-superscript';
+import Subscript from '@tiptap/extension-subscript';
+import TextAlign from '@tiptap/extension-text-align';
+
+// More Lucide icons for Word formatting toolbar
+import { 
+  Heading1, Heading2, Heading3, Heading4, Heading5, Heading6, 
+  Quote, Minus, Undo2, Redo2, Strikethrough, PaintBucket, 
+  ListTodo, Link2, Landmark, Baseline, Maximize2, Minimize2, 
+  Printer, Type 
+} from 'lucide-react';
+
+// Custom Indentation Extension
+const Indent = Extension.create({
+  name: 'indent',
+  addGlobalAttributes() {
+    return [
+      {
+        types: ['paragraph', 'heading'],
+        attributes: {
+          indent: {
+            default: 0,
+            renderHTML: attributes => {
+              if (!attributes.indent) return {};
+              return { style: `padding-left: ${attributes.indent * 24}px` };
+            },
+            parseHTML: element => {
+              const padding = element.style.paddingLeft || '0px';
+              return { indent: parseInt(padding) / 24 || 0 };
+            }
+          }
+        }
+      }
+    ];
+  }
+});
+
+// Custom Page Break Node
+const PageBreak = Node.create({
+  name: 'pageBreak',
+  group: 'block',
+  atom: true,
+  parseHTML() {
+    return [{ tag: 'div.page-break' }];
+  },
+  renderHTML() {
+    return ['div', { 
+      class: 'page-break my-6 border-t-2 border-dashed border-gray-300 dark:border-zinc-700 py-3 text-center text-[10px] text-gray-400 font-bold uppercase select-none tracking-widest', 
+      style: 'page-break-after: always; break-after: page;',
+      contenteditable: 'false'
+    }, '--- Page Break ---'];
+  },
+  addCommands() {
+    return {
+      insertPageBreak: () => ({ commands }) => {
+        return commands.insertContent({ type: this.name });
+      }
+    };
+  }
+});
 
 export default function Dashboard() {
   const [isDark, setIsDark] = useState(false);
@@ -139,6 +219,21 @@ export default function Dashboard() {
   const [recommendedReason, setRecommendedReason] = useState('');
   const [diagramType, setDiagramType] = useState('Methodology Flowchart');
   const [diagramStyle, setDiagramStyle] = useState('Academic Block Diagram');
+  
+  // Custom rich editing & zoom controls state
+  const [selectedEditorElement, setSelectedEditorElement] = useState(null);
+  const [selectedElementType, setSelectedElementType] = useState(''); // 'img' or 'table'
+  const [diagramZoom, setDiagramZoom] = useState(100);
+  
+  // Tiptap MS Word UI states
+  const [isFullScreen, setIsFullScreen] = useState(false);
+  const [editorZoom, setEditorZoom] = useState(100);
+  const [showFindReplace, setShowFindReplace] = useState(false);
+  const [findText, setFindText] = useState('');
+  const [replaceText, setReplaceText] = useState('');
+  const [findResults, setFindResults] = useState([]);
+  const [currentFindIndex, setCurrentFindIndex] = useState(-1);
+  const [contextMenu, setContextMenu] = useState(null);
   const [draggingNodeId, setDraggingNodeId] = useState(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [isEditingDiagramNode, setIsEditingDiagramNode] = useState(null);
@@ -576,6 +671,36 @@ export default function Dashboard() {
       content = tempDiv.textContent || tempDiv.innerText || "";
       filename += ".txt";
       mimeType = "text/plain";
+    } else if (format === "docx") {
+      content = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+<head>
+  <meta charset="utf-8">
+  <title>${draftTitle}</title>
+  <!--[if gte mso 9]>
+  <xml>
+    <w:WordDocument>
+      <w:View>Print</w:View>
+      <w:Zoom>100</w:Zoom>
+      <w:DoNotOptimizeForBrowser/>
+    </w:WordDocument>
+  </xml>
+  <![endif]-->
+  <style>
+    body { font-family: 'Calibri', 'Arial', sans-serif; line-height: 1.6; padding: 40px; }
+    h1 { font-family: 'Georgia', serif; color: #1e3a8a; margin-bottom: 12px; }
+    h2 { font-family: 'Georgia', serif; color: #0f766e; margin-top: 24px; }
+    table { border-collapse: collapse; width: 100%; margin: 16px 0; border: 1px solid #cbd5e1; }
+    th, td { border: 1px solid #cbd5e1; padding: 10px; text-align: left; }
+    th { background-color: #f8fafc; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>${draftTitle}</h1>
+  ${draftContent}
+</body>
+</html>`;
+      filename += ".doc";
+      mimeType = "application/msword";
     } else {
       content = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${draftTitle}</title><style>body { font-family: system-ui, -apple-system, sans-serif; line-height: 1.6; max-width: 800px; margin: 40px auto; padding: 0 20px; color: #1e293b; }</style></head><body><h1>${draftTitle}</h1>${draftContent}</body></html>`;
       filename += ".html";
@@ -875,15 +1000,18 @@ export default function Dashboard() {
     wrapper.style.justifyContent = 'center';
     wrapper.appendChild(clone);
     
-    if (editorRef.current) {
-      editorRef.current.focus();
-      document.execCommand('insertHTML', false, wrapper.outerHTML);
-      setSaveStatus('unsaved');
-      alert("Diagram successfully inserted inline into your thesis draft!");
-      setWorkspaceTab('editor');
-    } else {
-      alert("Please open the Editor tab first.");
-    }
+    // Switch to editor tab first so the editor DOM mounts
+    setWorkspaceTab('editor');
+    
+    setTimeout(() => {
+      if (editor) {
+        editor.chain().focus().insertContent(wrapper.outerHTML).run();
+        setSaveStatus('unsaved');
+        alert("Diagram successfully inserted inline into your thesis draft!");
+      } else {
+        alert("Please open the Thesis Draft editor manually first.");
+      }
+    }, 150);
   };
 
   const handleAddNewNode = () => {
@@ -973,38 +1101,374 @@ export default function Dashboard() {
 
   // --- Draft Editor (Microsoft Word-like) Operations ---
 
-  // Initialize editor contents on project select
-  useEffect(() => {
-    if (selectedProject && editorRef.current && workspaceTab === 'editor') {
-      editorRef.current.innerHTML = selectedProject.draft_content || '';
+  // --- Tiptap Editor Initialization & Operations ---
+
+  const editor = useEditor({
+    extensions: [
+      StarterKit.configure({
+        heading: {
+          levels: [1, 2, 3, 4, 5, 6],
+        },
+      }),
+      UnderlineExtension,
+      Color,
+      TextStyle,
+      Highlight.configure({ multicolor: true }),
+      Link.configure({
+        openOnClick: false,
+        HTMLAttributes: {
+          class: 'text-indigo-650 underline cursor-pointer',
+        },
+      }),
+      ImageExtension.configure({
+        inline: true,
+        HTMLAttributes: {
+          class: 'resizable-image max-w-[60%] border rounded-xl shadow-sm cursor-pointer inline-block',
+        },
+      }),
+      TableExtension.configure({
+        resizable: true,
+      }),
+      TableRow,
+      TableHeader,
+      TableCell,
+      TaskList,
+      TaskItem.configure({
+        nested: true,
+      }),
+      Superscript,
+      Subscript,
+      TextAlign.configure({
+        types: ['heading', 'paragraph'],
+      }),
+      Indent,
+      PageBreak,
+    ],
+    content: '',
+    onUpdate: ({ editor }) => {
+      const html = editor.getHTML();
+      setDraftContent(html);
+      setSaveStatus('unsaved');
       
-      // Calculate word count
-      const text = editorRef.current.innerText || '';
+      const text = editor.getText();
+      const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+      setWordCount(words);
+      setCharCount(text.length);
+    },
+  });
+
+  // Load project draft content into Tiptap
+  useEffect(() => {
+    if (selectedProject && editor) {
+      const currentHTML = editor.getHTML();
+      const targetHTML = selectedProject.draft_content || '';
+      if (currentHTML !== targetHTML) {
+        editor.commands.setContent(targetHTML);
+      }
+      const text = editor.getText();
       const words = text.trim() ? text.trim().split(/\s+/).length : 0;
       setWordCount(words);
       setCharCount(text.length);
       setSaveStatus('saved');
     }
-  }, [selectedProject, workspaceTab]);
+  }, [selectedProject, editor]);
 
-  const handleEditorInput = () => {
-    if (editorRef.current) {
-      const html = editorRef.current.innerHTML;
-      const text = editorRef.current.innerText || '';
-      setDraftContent(html);
-      
-      const words = text.trim() ? text.trim().split(/\s+/).length : 0;
-      setWordCount(words);
-      setCharCount(text.length);
-      setSaveStatus('unsaved');
+  // Handle document-wide keyboard shortcuts (Ctrl+S, Ctrl+F, Ctrl+H)
+  useEffect(() => {
+    const handleGlobalShortcuts = (e) => {
+      // Ctrl+S: Save Draft
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        handleSaveDraft();
+      }
+      // Ctrl+F: Open Find
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        setShowFindReplace(true);
+      }
+      // Ctrl+H: Open Replace
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'h') {
+        e.preventDefault();
+        setShowFindReplace(true);
+      }
+    };
+    window.addEventListener('keydown', handleGlobalShortcuts);
+    return () => window.removeEventListener('keydown', handleGlobalShortcuts);
+  }, [draftContent, draftTitle, selectedProject]);
+
+  // Click outside to close custom context menu
+  useEffect(() => {
+    const handleCloseContextMenu = () => setContextMenu(null);
+    window.addEventListener('click', handleCloseContextMenu);
+    return () => window.removeEventListener('click', handleCloseContextMenu);
+  }, []);
+
+  // --- AI Integration Extension Points (For Future Model Hooks) ---
+  
+  const getAISelectedText = () => {
+    if (!editor) return "";
+    const { from, to } = editor.state.selection;
+    return editor.state.doc.textBetween(from, to, " ");
+  };
+
+  const getAIEntireDocument = () => {
+    if (!editor) return "";
+    return editor.getText();
+  };
+
+  const getAICursorPosition = () => {
+    if (!editor) return 0;
+    return editor.state.selection.anchor;
+  };
+
+  const getAICurrentParagraph = () => {
+    if (!editor) return "";
+    const { selection } = editor.state;
+    const { $from } = selection;
+    return $from.parent.textContent || "";
+  };
+
+  const getAICurrentChapter = () => {
+    if (!editor) return "";
+    return "Chapter boundary node details";
+  };
+
+  const getAICurrentHeading = () => {
+    if (!editor) return "";
+    let headingText = "";
+    editor.state.doc.descendants((node) => {
+      if (node.type.name === 'heading') {
+        headingText = node.textContent;
+      }
+    });
+    return headingText;
+  };
+
+  // --- Find & Replace Operations ---
+
+  const executeFindText = () => {
+    if (!findText || !editor) return;
+    const text = editor.getText();
+    const regex = new RegExp(findText, 'gi');
+    const matches = [];
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      matches.push({ index: match.index, text: match[0] });
+    }
+    setFindResults(matches);
+    if (matches.length > 0) {
+      setCurrentFindIndex(0);
+      alert(`Found ${matches.length} occurrences.`);
+    } else {
+      setCurrentFindIndex(-1);
+      alert("No matching occurrences found.");
     }
   };
 
+  const executeReplaceText = () => {
+    if (!editor || !findText) return;
+    const currentHTML = editor.getHTML();
+    const regex = new RegExp(findText, 'g');
+    const updatedHTML = currentHTML.replace(regex, replaceText);
+    editor.commands.setContent(updatedHTML);
+    setSaveStatus('unsaved');
+    alert(`Replaced all occurrences of "${findText}" with "${replaceText}".`);
+  };
+
+  // --- Editor Formatting Helpers ---
+
   const handleFormat = (command, value = null) => {
-    document.execCommand(command, false, value);
-    handleEditorInput();
-    if (editorRef.current) {
-      editorRef.current.focus();
+    if (!editor) return;
+    editor.chain().focus();
+    
+    if (command === 'bold') editor.commands.toggleBold();
+    else if (command === 'italic') editor.commands.toggleItalic();
+    else if (command === 'underline') editor.commands.toggleUnderline();
+    else if (command === 'strike') editor.commands.toggleStrike();
+    else if (command === 'code') editor.commands.toggleCode();
+    else if (command === 'blockquote') editor.commands.toggleBlockquote();
+    else if (command === 'codeBlock') editor.commands.toggleCodeBlock();
+    else if (command === 'horizontalRule') editor.commands.setHorizontalRule();
+    else if (command === 'pageBreak') editor.commands.insertPageBreak();
+    else if (command === 'undo') editor.commands.undo();
+    else if (command === 'redo') editor.commands.redo();
+    else if (command === 'removeFormat') {
+      editor.commands.clearNodes();
+      editor.commands.unsetAllMarks();
+    }
+    else if (command === 'formatBlock') {
+      if (value === '<p>') editor.commands.setParagraph();
+      else if (value === '<blockquote>') editor.commands.toggleBlockquote();
+      else if (value?.startsWith('<h')) {
+        const level = parseInt(value.replace(/[^1-6]/g, ''));
+        editor.commands.toggleHeading({ level });
+      }
+    }
+    else if (command === 'align') {
+      editor.commands.setTextAlign(value);
+    }
+    
+    editor.run();
+  };
+
+  const handleIndent = () => {
+    if (!editor) return;
+    const indentVal = editor.getAttributes('paragraph').indent || 0;
+    editor.chain().focus().updateAttributes('paragraph', { indent: Math.min(10, indentVal + 1) }).run();
+    editor.chain().focus().updateAttributes('heading', { indent: Math.min(10, indentVal + 1) }).run();
+  };
+
+  const handleOutdent = () => {
+    if (!editor) return;
+    const indentVal = editor.getAttributes('paragraph').indent || 0;
+    editor.chain().focus().updateAttributes('paragraph', { indent: Math.max(0, indentVal - 1) }).run();
+    editor.chain().focus().updateAttributes('heading', { indent: Math.max(0, indentVal - 1) }).run();
+  };
+
+  const handleInsertTable = () => {
+    const rowsInput = prompt("Enter number of data rows:", "3");
+    const colsInput = prompt("Enter number of columns:", "3");
+    if (!rowsInput || !colsInput) return;
+    
+    const rows = parseInt(rowsInput) || 3;
+    const cols = parseInt(colsInput) || 3;
+    if (editor) {
+      editor.chain().focus().insertTable({ rows, cols, withHeaderRow: true }).run();
+    }
+  };
+
+  const handleInsertImage = () => {
+    const fileInput = document.createElement("input");
+    fileInput.type = "file";
+    fileInput.accept = "image/*";
+    
+    fileInput.onchange = (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const base64Url = event.target.result;
+        if (editor) {
+          editor.chain().focus().setImage({ src: base64Url, alt: file.name }).run();
+        }
+      };
+      reader.readAsDataURL(file);
+    };
+    
+    const choice = confirm("Insert a local image file from your computer? (Click Cancel to insert via URL link)");
+    if (choice) {
+      fileInput.click();
+    } else {
+      const url = prompt("Enter Image URL link:", "https://images.unsplash.com/photo-1507668077129-56e32842fceb?w=600");
+      if (!url) return;
+      if (editor) {
+        editor.chain().focus().setImage({ src: url, alt: "Figure" }).run();
+      }
+    }
+  };
+
+  const handleInsertGraph = () => {
+    const titleInput = prompt("Enter Graph Title:", "Performance Evaluation: System Accuracy Comparison");
+    const labelsInput = prompt("Enter Categories (comma-separated):", "Baseline, SOTA, Proposed");
+    const valuesInput = prompt("Enter Percent Values (0-100, comma-separated):", "55, 78, 96");
+    
+    if (!labelsInput || !valuesInput) return;
+    
+    const title = titleInput || "System Performance Chart";
+    const labels = labelsInput.split(",").map(s => s.trim());
+    const values = valuesInput.split(",").map(s => parseInt(s.trim()) || 0);
+    
+    const barWidth = 50;
+    const spacing = 45;
+    const chartHeight = 160;
+    const startX = 80;
+    const startY = 210;
+    
+    let barsHTML = "";
+    const colors = ["#94a3b8", "#818cf8", "#f43f5e", "#10b981", "#8b5cf6", "#f97316"];
+    
+    for (let i = 0; i < Math.min(labels.length, values.length); i++) {
+      const lbl = labels[i];
+      const val = Math.min(100, Math.max(0, values[i]));
+      const bH = (val / 100) * chartHeight;
+      const bX = startX + i * (barWidth + spacing);
+      const bY = startY - bH;
+      const col = colors[i % colors.length];
+      
+      barsHTML += `
+        <rect x="${bX}" y="${bY}" width="${barWidth}" height="${bH}" fill="${col}" rx="4" />
+        <text x="${bX + barWidth/2}" y="${bY - 8}" text-anchor="middle" font-size="9.5" font-weight="bold" fill="${col}">${val}%</text>
+        <text x="${bX + barWidth/2}" y="${startY + 16}" text-anchor="middle" font-size="9.5" font-weight="bold" fill="#64748b">${lbl}</text>
+      `;
+    }
+    
+    const graphWidth = Math.max(500, startX + labels.length * (barWidth + spacing) + 30);
+    
+    const graphHTML = `
+      <div style="text-align: center; margin: 24px 0; display: flex; flex-direction: column; align-items: center;" contenteditable="false">
+        <svg width="${graphWidth}" height="280" viewBox="0 0 ${graphWidth} 280" style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.04); padding: 15px; font-family: system-ui, sans-serif;">
+          <text x="${graphWidth/2}" y="22" text-anchor="middle" font-size="13" font-weight="bold" fill="#1e293b">${title}</text>
+          <line x1="60" y1="${startY}" x2="${graphWidth - 30}" y2="${startY}" stroke="#94a3b8" stroke-width="2" />
+          <line x1="60" y1="40" x2="60" y2="${startY}" stroke="#94a3b8" stroke-width="2" />
+          
+          <text x="50" y="${startY + 3}" text-anchor="end" font-size="9" fill="#64748b">0%</text>
+          <line x1="60" y1="${startY}" x2="${graphWidth - 30}" y2="${startY}" stroke="#f1f5f9" stroke-dasharray="3" />
+          
+          <text x="50" y="${startY - 40}" text-anchor="end" font-size="9" fill="#64748b">25%</text>
+          <line x1="60" y1="${startY - 40}" x2="${graphWidth - 30}" y2="${startY - 40}" stroke="#f1f5f9" stroke-dasharray="3" />
+          
+          <text x="50" y="${startY - 80}" text-anchor="end" font-size="9" fill="#64748b">50%</text>
+          <line x1="60" y1="${startY - 80}" x2="${graphWidth - 30}" y2="${startY - 80}" stroke="#f1f5f9" stroke-dasharray="3" />
+          
+          <text x="50" y="${startY - 120}" text-anchor="end" font-size="9" fill="#64748b">75%</text>
+          <line x1="60" y1="${startY - 120}" x2="${graphWidth - 30}" y2="${startY - 120}" stroke="#f1f5f9" stroke-dasharray="3" />
+          
+          <text x="50" y="44" text-anchor="end" font-size="9" fill="#64748b">100%</text>
+          <line x1="60" y1="40" x2="${graphWidth - 30}" y2="40" stroke="#f1f5f9" stroke-dasharray="3" />
+          
+          ${barsHTML}
+        </svg>
+        <p style="font-size: 11px; color: #64748b; font-style: italic; margin-top: 8px;">Figure: ${title}</p>
+      </div><p></p>
+    `;
+    
+    if (editor) {
+      editor.chain().focus().insertContent(graphHTML).run();
+    }
+  };
+
+  const handleEditorClick = (e) => {
+    const target = e.target;
+    if (target.tagName === 'IMG') {
+      setSelectedEditorElement(target);
+      setSelectedElementType('img');
+    } else {
+      const tableNode = target.closest('table');
+      if (tableNode) {
+        setSelectedEditorElement(tableNode);
+        setSelectedElementType('table');
+      } else {
+        setSelectedEditorElement(null);
+        setSelectedElementType('');
+      }
+    }
+  };
+
+  const handleContextAction = (action) => {
+    alert(`AI Action Placeholder: "${action}" triggered. Selected content: "${getAISelectedText()}"`);
+    setContextMenu(null);
+  };
+
+  const handleEditorContextMenu = (e) => {
+    if (editor && !editor.state.selection.empty) {
+      e.preventDefault();
+      setContextMenu({
+        x: e.clientX,
+        y: e.clientY,
+      });
+    } else {
+      setContextMenu(null);
     }
   };
 
@@ -1348,26 +1812,30 @@ export default function Dashboard() {
     <div className={`flex h-screen overflow-hidden ${isDark ? 'bg-pastel-darkBg text-gray-100' : 'bg-gray-50 text-gray-800'}`}>
       
       {/* Sidebar Navigation */}
-      <Sidebar 
-        isDark={isDark} 
-        toggleTheme={toggleTheme} 
-        user={user} 
-        activeSection={activeSection}
-        onSectionChange={setActiveSection}
-        mobileOpen={mobileOpen}
-        setMobileOpen={setMobileOpen}
-      />
-
+      {!isFullScreen && (
+        <Sidebar 
+          isDark={isDark} 
+          toggleTheme={toggleTheme} 
+          user={user} 
+          activeSection={activeSection}
+          onSectionChange={setActiveSection}
+          mobileOpen={mobileOpen}
+          setMobileOpen={setMobileOpen}
+        />
+      )}
+ 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         
         {/* Top Navbar */}
-        <Topbar 
-          isDark={isDark} 
-          user={user} 
-          activeSection={activeSection} 
-          onMenuClick={() => setMobileOpen(true)}
-        />
+        {!isFullScreen && (
+          <Topbar 
+            isDark={isDark} 
+            user={user} 
+            activeSection={activeSection} 
+            onMenuClick={() => setMobileOpen(true)}
+          />
+        )}
 
         {/* Dynamic Panels */}
         <main className="flex-1 overflow-y-auto">
@@ -1619,108 +2087,329 @@ export default function Dashboard() {
                     
                     {/* PANEL 1: MS WORD EDITOR */}
                     {workspaceTab === 'editor' && (
-                      <div className="h-full flex flex-col">
+                      <div className="h-full flex flex-col relative">
                         
                         {/* MS Word Formatting Toolbar */}
-                        <div className={`p-2.5 border-b flex flex-wrap gap-2 items-center justify-between ${
+                        <div className={`p-2 border-b flex flex-wrap gap-2 items-center justify-between ${
                           isDark ? 'bg-slate-900 border-pastel-darkBorder' : 'bg-slate-50 border-gray-200'
                         }`}>
-                          <div className="flex flex-wrap gap-1.5 items-center">
+                          <div className="flex flex-wrap gap-1 items-center">
                             
-                            {/* Formatting commands */}
-                            <button
-                              onClick={() => handleFormat('bold')}
-                              className="p-2 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400"
-                              title="Bold"
-                            >
-                              <Bold className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleFormat('italic')}
-                              className="p-2 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400"
-                              title="Italic"
-                            >
-                              <Italic className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleFormat('underline')}
-                              className="p-2 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400"
-                              title="Underline"
-                            >
-                              <Underline className="w-4 h-4" />
-                            </button>
+                            {/* File / Actions */}
+                            <div className="flex items-center space-x-0.5 mr-1">
+                              <button
+                                onClick={() => handleFormat('undo')}
+                                disabled={!editor?.can().undo()}
+                                className="p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400 disabled:opacity-30"
+                                title="Undo (Ctrl+Z)"
+                              >
+                                <Undo2 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => handleFormat('redo')}
+                                disabled={!editor?.can().redo()}
+                                className="p-1.5 rounded-lg hover:bg-gray-250 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400 disabled:opacity-30"
+                                title="Redo (Ctrl+Y)"
+                              >
+                                <Redo2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
 
-                            <div className="w-[1px] h-6 bg-gray-200 dark:bg-pastel-darkBorder mx-1" />
+                            <div className="w-[1px] h-5 bg-gray-255 dark:bg-pastel-darkBorder mx-1" />
 
-                            {/* Alignment commands */}
-                            <button
-                              onClick={() => handleFormat('justifyLeft')}
-                              className="p-2 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400"
-                              title="Align Left"
-                            >
-                              <AlignLeft className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleFormat('justifyCenter')}
-                              className="p-2 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400"
-                              title="Align Center"
-                            >
-                              <AlignCenter className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleFormat('justifyRight')}
-                              className="p-2 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400"
-                              title="Align Right"
-                            >
-                              <AlignRight className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleFormat('justifyFull')}
-                              className="p-2 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400"
-                              title="Align Justify"
-                            >
-                              <AlignJustify className="w-4 h-4" />
-                            </button>
-
-                            <div className="w-[1px] h-6 bg-gray-200 dark:bg-pastel-darkBorder mx-1" />
-
-                            {/* Lists commands */}
-                            <button
-                              onClick={() => handleFormat('insertUnorderedList')}
-                              className="p-2 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400"
-                              title="Bullet List"
-                            >
-                              <List className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleFormat('insertOrderedList')}
-                              className="p-2 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400"
-                              title="Numbered List"
-                            >
-                              <ListOrdered className="w-4 h-4" />
-                            </button>
-
-                            <div className="w-[1px] h-6 bg-gray-200 dark:bg-pastel-darkBorder mx-1" />
-
-                            {/* Heading selection */}
+                            {/* Style Select */}
                             <select
                               onChange={(e) => handleFormat('formatBlock', e.target.value)}
-                              className="px-2 py-1.5 text-xs font-bold rounded-xl border bg-white dark:bg-slate-800 border-gray-200 dark:border-pastel-darkBorder text-gray-600 dark:text-gray-200"
-                              defaultValue="<p>"
+                              className="px-2 py-1 text-xs font-bold rounded-lg border bg-white dark:bg-slate-800 border-gray-250 dark:border-pastel-darkBorder text-gray-600 dark:text-gray-200"
+                              value={
+                                editor?.isActive('heading', { level: 1 }) ? '<h1>' :
+                                editor?.isActive('heading', { level: 2 }) ? '<h2>' :
+                                editor?.isActive('heading', { level: 3 }) ? '<h3>' :
+                                editor?.isActive('blockquote') ? '<blockquote>' : '<p>'
+                              }
                             >
                               <option value="<p>">Normal Paragraph</option>
-                              <option value="<h1>">Heading 1 (Title)</option>
-                              <option value="<h2>">Heading 2 (Section)</option>
-                              <option value="<h3>">Heading 3 (Sub)</option>
+                              <option value="<h1>">Heading 1</option>
+                              <option value="<h2>">Heading 2</option>
+                              <option value="<h3>">Heading 3</option>
+                              <option value="<h4>">Heading 4</option>
+                              <option value="<h5>">Heading 5</option>
+                              <option value="<h6>">Heading 6</option>
                               <option value="<blockquote>">Quote Block</option>
                             </select>
 
+                            <div className="w-[1px] h-5 bg-gray-255 dark:bg-pastel-darkBorder mx-1" />
+
+                            {/* Font Formats */}
+                            <button
+                              onClick={() => handleFormat('bold')}
+                              className={`p-1.5 rounded-lg transition-all ${
+                                editor?.isActive('bold')
+                                  ? 'bg-indigo-100 dark:bg-indigo-950/40 text-indigo-650'
+                                  : 'hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-500'
+                              }`}
+                              title="Bold (Ctrl+B)"
+                            >
+                              <Bold className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleFormat('italic')}
+                              className={`p-1.5 rounded-lg transition-all ${
+                                editor?.isActive('italic')
+                                  ? 'bg-indigo-100 dark:bg-indigo-950/40 text-indigo-650'
+                                  : 'hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-500'
+                              }`}
+                              title="Italic (Ctrl+I)"
+                            >
+                              <Italic className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleFormat('underline')}
+                              className={`p-1.5 rounded-lg transition-all ${
+                                editor?.isActive('underline')
+                                  ? 'bg-indigo-100 dark:bg-indigo-950/40 text-indigo-650'
+                                  : 'hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-500'
+                              }`}
+                              title="Underline (Ctrl+U)"
+                            >
+                              <Underline className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleFormat('strike')}
+                              className={`p-1.5 rounded-lg transition-all ${
+                                editor?.isActive('strike')
+                                  ? 'bg-indigo-100 dark:bg-indigo-950/40 text-indigo-650'
+                                  : 'hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-500'
+                              }`}
+                              title="Strikethrough"
+                            >
+                              <Strikethrough className="w-3.5 h-3.5" />
+                            </button>
+                            
+                            {/* Script formats */}
+                            <button
+                              onClick={() => editor?.chain().focus().toggleSuperscript().run()}
+                              className={`p-1.5 rounded-lg transition-all ${
+                                editor?.isActive('superscript')
+                                  ? 'bg-indigo-100 dark:bg-indigo-950/40 text-indigo-650'
+                                  : 'hover:bg-gray-250 dark:hover:bg-gray-800 text-gray-500'
+                              }`}
+                              title="Superscript"
+                            >
+                              <span className="text-[10px] font-bold">X²</span>
+                            </button>
+                            <button
+                              onClick={() => editor?.chain().focus().toggleSubscript().run()}
+                              className={`p-1.5 rounded-lg transition-all ${
+                                editor?.isActive('subscript')
+                                  ? 'bg-indigo-100 dark:bg-indigo-950/40 text-indigo-650'
+                                  : 'hover:bg-gray-250 dark:hover:bg-gray-800 text-gray-500'
+                              }`}
+                              title="Subscript"
+                            >
+                              <span className="text-[10px] font-bold">X₂</span>
+                            </button>
+
+                            <div className="w-[1px] h-5 bg-gray-250 dark:bg-pastel-darkBorder mx-1" />
+
+                            {/* Color Selection */}
+                            <div className="flex items-center space-x-1" title="Font Text Color">
+                              <Baseline className="w-3.5 h-3.5 text-gray-500" />
+                              <input
+                                type="color"
+                                onChange={(e) => editor?.chain().focus().setColor(e.target.value).run()}
+                                className="w-5 h-5 rounded cursor-pointer border border-gray-250 p-0"
+                              />
+                            </div>
+                            <div className="flex items-center space-x-1" title="Highlight Marker Color">
+                              <PaintBucket className="w-3.5 h-3.5 text-gray-500" />
+                              <input
+                                type="color"
+                                onChange={(e) => editor?.chain().focus().toggleHighlight({ color: e.target.value }).run()}
+                                className="w-5 h-5 rounded cursor-pointer border border-gray-250 p-0"
+                              />
+                            </div>
+
+                            <div className="w-[1px] h-5 bg-gray-250 dark:bg-pastel-darkBorder mx-1" />
+
+                            {/* Alignments */}
+                            <button
+                              onClick={() => handleFormat('align', 'left')}
+                              className={`p-1.5 rounded-lg transition-all ${
+                                editor?.isActive({ textAlign: 'left' })
+                                  ? 'bg-indigo-100 dark:bg-indigo-950/40 text-indigo-650'
+                                  : 'hover:bg-gray-250 dark:hover:bg-gray-800 text-gray-500'
+                              }`}
+                              title="Align Left"
+                            >
+                              <AlignLeft className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleFormat('align', 'center')}
+                              className={`p-1.5 rounded-lg transition-all ${
+                                editor?.isActive({ textAlign: 'center' })
+                                  ? 'bg-indigo-100 dark:bg-indigo-950/40 text-indigo-650'
+                                  : 'hover:bg-gray-250 dark:hover:bg-gray-800 text-gray-500'
+                              }`}
+                              title="Align Center"
+                            >
+                              <AlignCenter className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleFormat('align', 'right')}
+                              className={`p-1.5 rounded-lg transition-all ${
+                                editor?.isActive({ textAlign: 'right' })
+                                  ? 'bg-indigo-100 dark:bg-indigo-950/40 text-indigo-650'
+                                  : 'hover:bg-gray-250 dark:hover:bg-gray-800 text-gray-500'
+                              }`}
+                              title="Align Right"
+                            >
+                              <AlignRight className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleFormat('align', 'justify')}
+                              className={`p-1.5 rounded-lg transition-all ${
+                                editor?.isActive({ textAlign: 'justify' })
+                                  ? 'bg-indigo-100 dark:bg-indigo-950/40 text-indigo-650'
+                                  : 'hover:bg-gray-250 dark:hover:bg-gray-800 text-gray-500'
+                              }`}
+                              title="Align Justified"
+                            >
+                              <AlignJustify className="w-3.5 h-3.5" />
+                            </button>
+
+                            <div className="w-[1px] h-5 bg-gray-250 dark:bg-pastel-darkBorder mx-1" />
+
+                            {/* Indents */}
+                            <button
+                              onClick={handleIndent}
+                              className="p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-500"
+                              title="Increase Indentation"
+                            >
+                              <span className="text-xs font-black">→|</span>
+                            </button>
+                            <button
+                              onClick={handleOutdent}
+                              className="p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-500"
+                              title="Decrease Indentation"
+                            >
+                              <span className="text-xs font-black">|←</span>
+                            </button>
+
+                            <div className="w-[1px] h-5 bg-gray-250 dark:bg-pastel-darkBorder mx-1" />
+
+                            {/* Lists */}
+                            <button
+                              onClick={() => editor?.chain().focus().toggleBulletList().run()}
+                              className={`p-1.5 rounded-lg transition-all ${
+                                editor?.isActive('bulletList')
+                                  ? 'bg-indigo-100 dark:bg-indigo-950/40 text-indigo-650'
+                                  : 'hover:bg-gray-250 dark:hover:bg-gray-800 text-gray-500'
+                              }`}
+                              title="Bullet List"
+                            >
+                              <List className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => editor?.chain().focus().toggleOrderedList().run()}
+                              className={`p-1.5 rounded-lg transition-all ${
+                                editor?.isActive('orderedList')
+                                  ? 'bg-indigo-100 dark:bg-indigo-950/40 text-indigo-650'
+                                  : 'hover:bg-gray-250 dark:hover:bg-gray-800 text-gray-500'
+                              }`}
+                              title="Numbered List"
+                            >
+                              <ListOrdered className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => editor?.chain().focus().toggleTaskList().run()}
+                              className={`p-1.5 rounded-lg transition-all ${
+                                editor?.isActive('taskList')
+                                  ? 'bg-indigo-100 dark:bg-indigo-950/40 text-indigo-650'
+                                  : 'hover:bg-gray-250 dark:hover:bg-gray-800 text-gray-500'
+                              }`}
+                              title="Task List"
+                            >
+                              <ListTodo className="w-3.5 h-3.5" />
+                            </button>
+
+                            <div className="w-[1px] h-5 bg-gray-250 dark:bg-pastel-darkBorder mx-1" />
+
+                            {/* Inserts */}
+                            <button
+                              onClick={() => handleFormat('horizontalRule')}
+                              className="p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-500"
+                              title="Horizontal Line separator"
+                            >
+                              <Minus className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleFormat('pageBreak')}
+                              className="p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-500"
+                              title="Insert Page Break"
+                            >
+                              <span className="text-[10px] font-black tracking-tighter">PAGE</span>
+                            </button>
+                            <button
+                              onClick={handleInsertTable}
+                              className={`p-1.5 rounded-lg transition-all ${
+                                editor?.isActive('table')
+                                  ? 'bg-indigo-100 dark:bg-indigo-950/40 text-indigo-650'
+                                  : 'hover:bg-gray-250 dark:hover:bg-gray-800 text-gray-500'
+                              }`}
+                              title="Insert Custom Table"
+                            >
+                              <Table className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={handleInsertImage}
+                              className="p-1.5 rounded-lg hover:bg-gray-250 dark:hover:bg-gray-800 text-gray-500"
+                              title="Upload Local / Web image"
+                            >
+                              <Image className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={handleInsertGraph}
+                              className="p-1.5 rounded-lg hover:bg-gray-250 dark:hover:bg-gray-800 text-gray-500"
+                              title="Insert Dynamic Research Bar Graph"
+                            >
+                              <BarChart3 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                const url = prompt("Enter website hyperlink link URL:");
+                                if (url) editor?.chain().focus().setLink({ href: url }).run();
+                              }}
+                              className={`p-1.5 rounded-lg transition-all ${
+                                editor?.isActive('link')
+                                  ? 'bg-indigo-100 dark:bg-indigo-950/40 text-indigo-650'
+                                  : 'hover:bg-gray-250 dark:hover:bg-gray-800 text-gray-500'
+                              }`}
+                              title="Insert Link"
+                            >
+                              <Link2 className="w-3.5 h-3.5" />
+                            </button>
                             <button
                               onClick={() => handleFormat('removeFormat')}
-                              className="px-2 py-1.5 text-xs font-bold border border-gray-200 dark:border-pastel-darkBorder hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-500 rounded-xl"
-                              title="Clear Text Formatting"
+                              className="p-1.5 rounded-lg hover:bg-gray-250 dark:hover:bg-gray-800 text-gray-550 hover:text-rose-500 text-xs font-black"
+                              title="Clear all local text styles"
                             >
-                              Reset styles
+                              <Type className="w-3.5 h-3.5 text-rose-500" />
+                            </button>
+
+                            <div className="w-[1px] h-5 bg-gray-250 dark:bg-pastel-darkBorder mx-1" />
+
+                            {/* Editing / Search */}
+                            <button
+                              onClick={() => setShowFindReplace(!showFindReplace)}
+                              className={`p-1.5 rounded-lg transition-all ${
+                                showFindReplace
+                                  ? 'bg-indigo-100 dark:bg-indigo-950/40 text-indigo-650'
+                                  : 'hover:bg-gray-250 dark:hover:bg-gray-800 text-gray-500'
+                              }`}
+                              title="Find and Replace text (Ctrl+F)"
+                            >
+                              <Search className="w-3.5 h-3.5" />
                             </button>
                           </div>
 
@@ -1746,6 +2435,16 @@ export default function Dashboard() {
                               >
                                 <FileText className="w-3 h-3" />
                                 <span>TXT</span>
+                              </button>
+                              <div className="w-[1px] h-3.5 bg-gray-300 dark:bg-gray-600" />
+                              <button
+                                type="button"
+                                onClick={() => handleDownloadDraft('docx')}
+                                className="flex items-center space-x-1 px-2.5 py-1.5 text-xs font-bold text-gray-650 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-700 rounded-lg transition-all"
+                                title="Download draft as Microsoft Word Document"
+                              >
+                                <FileText className="w-3 h-3 text-indigo-500" />
+                                <span>Word Doc</span>
                               </button>
                             </div>
 
@@ -1785,7 +2484,7 @@ export default function Dashboard() {
                               type="button"
                               onClick={handleViewNoveltyHistory}
                               className={`flex items-center space-x-1.5 px-3 py-2 text-xs font-bold rounded-xl transition-all border hover-scale ${
-                                isDark ? 'border-pastel-darkBorder hover:bg-gray-800 text-gray-300' : 'border-gray-200 hover:bg-gray-50 text-gray-600'
+                                isDark ? 'border-pastel-darkBorder hover:bg-gray-800 text-gray-300' : 'border-gray-200 hover:bg-gray-55 text-gray-605'
                               }`}
                               title="View previous novelty reports history"
                             >
@@ -1817,18 +2516,203 @@ export default function Dashboard() {
                               <Save className="w-3.5 h-3.5" />
                               <span>Save Draft</span>
                             </button>
+
+                            {/* Editor Zoom Controls */}
+                            <div className="flex items-center space-x-1 bg-gray-100 dark:bg-slate-800 p-0.5 rounded-xl border dark:border-pastel-darkBorder shadow-sm text-xs font-bold">
+                              <button
+                                type="button"
+                                onClick={() => setEditorZoom(prev => Math.max(50, prev - 10))}
+                                className="px-2 py-1 hover:bg-white dark:hover:bg-gray-700 rounded-lg text-gray-500 dark:text-gray-350"
+                                title="Zoom Out"
+                              >
+                                -
+                              </button>
+                              <span className="px-1 text-gray-600 dark:text-gray-300">{editorZoom}%</span>
+                              <button
+                                type="button"
+                                onClick={() => setEditorZoom(prev => Math.min(200, prev + 10))}
+                                className="px-2 py-1 hover:bg-white dark:hover:bg-gray-700 rounded-lg text-gray-500 dark:text-gray-355"
+                                title="Zoom In"
+                              >
+                                +
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditorZoom(100)}
+                                className="px-1.5 py-1 hover:bg-white dark:hover:bg-gray-700 rounded-lg text-[10px] text-gray-400"
+                                title="Reset Zoom"
+                              >
+                                Reset
+                              </button>
+                            </div>
+
+                            {/* Full Screen Toggle */}
+                            <button
+                              type="button"
+                              onClick={() => setIsFullScreen(!isFullScreen)}
+                              className={`p-2 rounded-xl transition-all border hover-scale ${
+                                isFullScreen 
+                                  ? 'bg-indigo-100 border-indigo-200 text-indigo-650' 
+                                  : 'border-gray-250 dark:border-pastel-darkBorder hover:bg-gray-55 dark:hover:bg-gray-800 text-gray-500'
+                              }`}
+                              title="Toggle Full Screen Mode"
+                            >
+                              {isFullScreen ? (
+                                <Minimize2 className="w-3.5 h-3.5" />
+                              ) : (
+                                <Maximize2 className="w-3.5 h-3.5" />
+                              )}
+                            </button>
                           </div>
                         </div>
 
                         {/* Editor Canvas Area */}
-                        <div className="flex-1 overflow-y-auto bg-slate-100 dark:bg-zinc-950 p-6 md:p-12 flex justify-center items-start min-h-[500px]">
+                        <div className="flex-1 overflow-y-auto bg-slate-100 dark:bg-zinc-950 p-6 md:p-12 flex flex-col justify-start items-center min-h-[500px]">
                           
+                          {/* Find & Replace Panel */}
+                          {showFindReplace && (
+                            <div className="w-full max-w-[800px] mb-3 p-3 rounded-2xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-pastel-darkBorder flex flex-wrap items-center justify-between gap-3 shadow-md animate-fade-in-up">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <div className="relative">
+                                  <input 
+                                    type="text" 
+                                    placeholder="Find text..." 
+                                    value={findText}
+                                    onChange={(e) => setFindText(e.target.value)}
+                                    className="px-3 py-1.5 text-xs border rounded-xl dark:bg-slate-800 dark:border-pastel-darkBorder text-gray-700 dark:text-gray-205 focus:outline-none focus:border-pastel-pink/55"
+                                  />
+                                </div>
+                                <input 
+                                  type="text" 
+                                  placeholder="Replace with..." 
+                                  value={replaceText}
+                                  onChange={(e) => setReplaceText(e.target.value)}
+                                  className="px-3 py-1.5 text-xs border rounded-xl dark:bg-slate-800 dark:border-pastel-darkBorder text-gray-700 dark:text-gray-205 focus:outline-none focus:border-pastel-pink/55"
+                                />
+                                <button 
+                                  type="button" 
+                                  onClick={executeFindText} 
+                                  className="px-3 py-1.5 bg-indigo-500 hover:bg-indigo-650 text-white rounded-xl text-xs font-bold transition-all shadow-sm"
+                                >
+                                  Find
+                                </button>
+                                <button 
+                                  type="button" 
+                                  onClick={executeReplaceText} 
+                                  className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-650 text-white rounded-xl text-xs font-bold transition-all shadow-sm"
+                                >
+                                  Replace All
+                                </button>
+                              </div>
+                              <button 
+                                type="button" 
+                                onClick={() => { setShowFindReplace(false); setFindText(''); setReplaceText(''); setFindResults([]); }}
+                                className="p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-slate-850 text-gray-400"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Float selection controls for Image/Table */}
+                          {selectedEditorElement && (
+                            <div className="w-full max-w-[800px] mb-3 p-3 rounded-2xl bg-indigo-50 dark:bg-slate-900 border border-indigo-150 dark:border-indigo-950 flex items-center justify-between text-xs font-bold shadow-md animate-fade-in-up">
+                              <div className="flex items-center space-x-2 text-indigo-700 dark:text-indigo-300">
+                                {selectedElementType === 'img' ? (
+                                  <>
+                                    <Image className="w-4 h-4" />
+                                    <span>Selected Image Figure</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Table className="w-4 h-4" />
+                                    <span>Selected Grid Table</span>
+                                  </>
+                                )}
+                              </div>
+                              
+                              <div className="flex items-center space-x-2">
+                                {selectedElementType === 'img' ? (
+                                  <>
+                                    <span className="text-gray-400 text-[10px]">Resize:</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleImageResize('25%')}
+                                      className="px-2 py-1 rounded bg-white hover:bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-gray-300 border dark:border-pastel-darkBorder transition-all"
+                                    >
+                                      25%
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleImageResize('50%')}
+                                      className="px-2 py-1 rounded bg-white hover:bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-gray-300 border dark:border-pastel-darkBorder transition-all"
+                                    >
+                                      50%
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleImageResize('75%')}
+                                      className="px-2 py-1 rounded bg-white hover:bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-gray-300 border dark:border-pastel-darkBorder transition-all"
+                                    >
+                                      75%
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleImageResize('100%')}
+                                      className="px-2 py-1 rounded bg-white hover:bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-gray-300 border dark:border-pastel-darkBorder transition-all"
+                                    >
+                                      100%
+                                    </button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={handleTableAddRow}
+                                      className="px-2.5 py-1 rounded bg-white hover:bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-gray-300 border dark:border-pastel-darkBorder transition-all flex items-center space-x-1"
+                                    >
+                                      <span>+ Row</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={handleTableAddCol}
+                                      className="px-2.5 py-1 rounded bg-white hover:bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-gray-300 border dark:border-pastel-darkBorder transition-all flex items-center space-x-1"
+                                    >
+                                      <span>+ Col</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={handleTableDeleteRow}
+                                      className="px-2 py-1 rounded bg-white hover:bg-red-50 text-red-550 border border-red-200 dark:border-red-950 transition-all"
+                                      title="Delete last row"
+                                    >
+                                      - Row
+                                    </button>
+                                  </>
+                                )}
+                                
+                                <div className="w-[1px] h-4 bg-gray-300 dark:bg-slate-700 mx-1" />
+                                
+                                <button
+                                  type="button"
+                                  onClick={selectedElementType === 'img' ? handleImageDelete : handleTableDeleteTable}
+                                  className="px-2.5 py-1 rounded bg-red-500 hover:bg-red-650 text-white font-bold transition-all shadow-sm"
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
                           {/* MS Word page-like container */}
-                          <div className={`w-full max-w-[800px] min-h-[842px] p-12 md:p-16 shadow-xl rounded-sm border flex flex-col transition-colors duration-200 ${
-                            isDark 
-                              ? 'bg-zinc-900 text-zinc-100 border-zinc-800' 
-                              : 'bg-white text-gray-900 border-gray-250'
-                          }`}>
+                          <div 
+                            style={{ zoom: editorZoom / 100 }}
+                            className={`w-full max-w-[800px] min-h-[1050px] p-12 md:p-16 shadow-xl rounded-sm border flex flex-col transition-all duration-200 ${
+                              isDark 
+                                ? 'bg-zinc-900 text-zinc-100 border-zinc-800' 
+                                : 'bg-white text-gray-900 border-gray-250'
+                            }`}
+                          >
                             
                             {/* Draft Title Input */}
                             <input
@@ -1839,13 +2723,12 @@ export default function Dashboard() {
                               className="font-extrabold text-2xl border-none outline-none focus:ring-0 w-full mb-6 pb-2 border-b border-gray-200 dark:border-zinc-800 bg-transparent text-pastel-accent focus:border-pastel-pink/50 focus:outline-none"
                             />
 
-                            {/* Rich text editing canvas */}
-                            <div
-                              ref={editorRef}
-                              contentEditable
-                              onInput={handleEditorInput}
-                              className="editor-content flex-1 text-base leading-relaxed focus:outline-none min-h-[600px]"
-                              placeholder="Start typing your thesis paper draft here... Highlight text to apply formatting using the toolbar."
+                            {/* Tiptap Rich text editing canvas */}
+                            <EditorContent
+                              editor={editor}
+                              onClick={handleEditorClick}
+                              onContextMenu={handleEditorContextMenu}
+                              className="editor-content flex-1 text-base leading-relaxed focus:outline-none min-h-[600px] outline-none"
                             />
                             
                             {/* Word Count indicator */}
@@ -1854,6 +2737,58 @@ export default function Dashboard() {
                               <span>Chars: {charCount}</span>
                             </div>
                           </div>
+
+                          {/* Custom AI Context Menu */}
+                          {contextMenu && (
+                            <div 
+                              className="fixed bg-white dark:bg-slate-900 border dark:border-pastel-darkBorder rounded-2xl shadow-xl p-2 z-50 min-w-[200px] select-none"
+                              style={{ top: contextMenu.y, left: contextMenu.x }}
+                            >
+                              <div className="text-[10px] font-black uppercase tracking-wider text-gray-400 px-3 py-1.5 border-b dark:border-pastel-darkBorder">
+                                AI Actions
+                              </div>
+                              <button onClick={() => handleContextAction('Improve Academic Writing')} className="w-full text-left px-3 py-2 text-xs font-bold text-gray-705 dark:text-gray-200 hover:bg-indigo-500 hover:text-white rounded-xl transition-all flex items-center space-x-2">
+                                <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+                                <span>Improve Academic Writing</span>
+                              </button>
+                              <button onClick={() => handleContextAction('Rewrite')} className="w-full text-left px-3 py-2 text-xs font-bold text-gray-705 dark:text-gray-200 hover:bg-indigo-500 hover:text-white rounded-xl transition-all flex items-center space-x-2">
+                                <FileText className="w-3.5 h-3.5 text-indigo-500" />
+                                <span>Rewrite</span>
+                              </button>
+                              <button onClick={() => handleContextAction('Expand')} className="w-full text-left px-3 py-2 text-xs font-bold text-gray-705 dark:text-gray-200 hover:bg-indigo-500 hover:text-white rounded-xl transition-all flex items-center space-x-2">
+                                <Plus className="w-3.5 h-3.5 text-emerald-500" />
+                                <span>Expand</span>
+                              </button>
+                              <button onClick={() => handleContextAction('Shorten')} className="w-full text-left px-3 py-2 text-xs font-bold text-gray-705 dark:text-gray-200 hover:bg-indigo-500 hover:text-white rounded-xl transition-all flex items-center space-x-2">
+                                <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                                <span>Shorten</span>
+                              </button>
+                              <button onClick={() => handleContextAction('Explain')} className="w-full text-left px-3 py-2 text-xs font-bold text-gray-705 dark:text-gray-200 hover:bg-indigo-500 hover:text-white rounded-xl transition-all flex items-center space-x-2">
+                                <BookOpen className="w-3.5 h-3.5 text-teal-500" />
+                                <span>Explain</span>
+                              </button>
+                              <button onClick={() => handleContextAction('Generate Citation')} className="w-full text-left px-3 py-2 text-xs font-bold text-gray-705 dark:text-gray-200 hover:bg-indigo-500 hover:text-white rounded-xl transition-all flex items-center space-x-2">
+                                <Plus className="w-3.5 h-3.5 text-indigo-500" />
+                                <span>Generate Citation</span>
+                              </button>
+                              <button onClick={() => handleContextAction('Review Paragraph')} className="w-full text-left px-3 py-2 text-xs font-bold text-gray-705 dark:text-gray-200 hover:bg-indigo-500 hover:text-white rounded-xl transition-all flex items-center space-x-2">
+                                <FileText className="w-3.5 h-3.5 text-indigo-500" />
+                                <span>Review Paragraph</span>
+                              </button>
+                              <button onClick={() => handleContextAction('Compare With Papers')} className="w-full text-left px-3 py-2 text-xs font-bold text-gray-705 dark:text-gray-200 hover:bg-indigo-500 hover:text-white rounded-xl transition-all flex items-center space-x-2">
+                                <Sparkles className="w-3.5 h-3.5 text-pastel-accent" />
+                                <span>Compare With Papers</span>
+                              </button>
+                              <button onClick={() => handleContextAction('Generate Diagram')} className="w-full text-left px-3 py-2 text-xs font-bold text-gray-705 dark:text-gray-200 hover:bg-indigo-500 hover:text-white rounded-xl transition-all flex items-center space-x-2">
+                                <Network className="w-3.5 h-3.5 text-emerald-500" />
+                                <span>Generate Diagram</span>
+                              </button>
+                              <button onClick={() => handleContextAction('Check Novelty')} className="w-full text-left px-3 py-2 text-xs font-bold text-gray-705 dark:text-gray-200 hover:bg-indigo-500 hover:text-white rounded-xl transition-all flex items-center space-x-2">
+                                <Sparkles className="w-3.5 h-3.5 text-pastel-accent animate-pulse" />
+                                <span>Check Novelty</span>
+                              </button>
+                            </div>
+                          )}
 
                         </div>
                       </div>
@@ -2903,15 +3838,47 @@ export default function Dashboard() {
                             ) : (
                               <div className="flex-1 flex flex-col lg:flex-row gap-6 overflow-hidden h-full">
                                 
-                                {/* Graph canvas */}
                                 <div className="flex-1 flex flex-col p-4 rounded-3xl border bg-white dark:bg-slate-900/40 dark:border-pastel-darkBorder shadow-sm relative overflow-hidden h-full">
                                   <div className="flex items-center justify-between mb-3">
-                                    <div className="flex items-center space-x-2">
+                                    <div className="flex items-center space-x-2.5 text-left">
                                       <span className="text-[10px] font-black bg-pastel-accent/20 text-pastel-accent px-2 py-0.5 rounded uppercase">
                                         Canvas Viewport
                                       </span>
-                                      <span className="text-[9px] text-gray-400 font-medium">
-                                        * Drag node cards to adjust layout. Autosaves position.
+                                      
+                                      {/* Zoom controls */}
+                                      <div className="flex items-center space-x-1 bg-gray-100 dark:bg-slate-800 p-0.5 rounded-lg border dark:border-pastel-darkBorder shadow-sm">
+                                        <button
+                                          type="button"
+                                          onClick={() => setDiagramZoom(prev => Math.max(50, prev - 10))}
+                                          className="px-1.5 py-0.5 text-[10px] font-bold text-gray-550 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-700 rounded transition-all"
+                                          title="Zoom Out"
+                                        >
+                                          -
+                                        </button>
+                                        <span className="text-[9px] font-mono font-bold text-gray-500 dark:text-gray-400 px-1">
+                                          {diagramZoom}%
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => setDiagramZoom(prev => Math.min(250, prev + 10))}
+                                          className="px-1.5 py-0.5 text-[10px] font-bold text-gray-550 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-700 rounded transition-all"
+                                          title="Zoom In"
+                                        >
+                                          +
+                                        </button>
+                                        <div className="w-[1px] h-3 bg-gray-300 dark:bg-slate-700 mx-0.5" />
+                                        <button
+                                          type="button"
+                                          onClick={() => setDiagramZoom(100)}
+                                          className="px-1.5 py-0.5 text-[9px] font-bold text-gray-550 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-700 rounded transition-all"
+                                          title="Reset Zoom"
+                                        >
+                                          Reset
+                                        </button>
+                                      </div>
+
+                                      <span className="text-[9px] text-gray-450 font-medium">
+                                        * Drag node cards to adjust layout.
                                       </span>
                                     </div>
                                     <span className="text-xs font-bold text-gray-400 uppercase tracking-widest bg-gray-100 dark:bg-slate-800 px-2.5 py-1 rounded-lg">
@@ -2941,7 +3908,7 @@ export default function Dashboard() {
                                       onMouseMove={handleNodeDragMove}
                                       onMouseUp={handleNodeDragEnd}
                                       onMouseLeave={handleNodeDragEnd}
-                                      viewBox="0 0 1000 600"
+                                      viewBox={`${(1000 - 1000 * (100 / diagramZoom)) / 2} ${(600 - 600 * (100 / diagramZoom)) / 2} ${1000 * (100 / diagramZoom)} ${600 * (100 / diagramZoom)}`}
                                       preserveAspectRatio="xMidYMid meet"
                                     >
                                       {/* Arrowhead marker definition */}
@@ -3034,8 +4001,8 @@ export default function Dashboard() {
                                         const isDragging = draggingNodeId === node.id;
                                         const fillHex = node.color || "#6366f1";
                                         
-                                        const w = 150;
-                                        const h = 50;
+                                        const w = Math.max(160, node.label.length * 8 + 35);
+                                        const h = 54;
                                         
                                         return (
                                           <g
