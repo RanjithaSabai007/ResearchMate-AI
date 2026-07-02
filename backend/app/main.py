@@ -38,6 +38,9 @@ app = FastAPI(
 app.include_router(ai.router)
 app.include_router(ai_router)
 
+from app.routes.writing_assistant import router as writing_assistant_router
+app.include_router(writing_assistant_router)
+
 config_data = {
     "GOOGLE_CLIENT_ID": GOOGLE_CLIENT_ID or "placeholder",
     "GOOGLE_CLIENT_SECRET": GOOGLE_CLIENT_SECRET or "placeholder",

@@ -349,3 +349,28 @@ class DiagramResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class WritingAssistantMessageResponse(BaseModel):
+    id: int
+    project_id: int
+    role: str
+    content: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class WritingAssistantChatRequest(BaseModel):
+    prompt: str
+    selected_text: Optional[str] = None
+    cursor_paragraph: Optional[str] = None
+    current_heading: Optional[str] = None
+    draft_content: Optional[str] = None
+
+
+class WritingAssistantResponse(BaseModel):
+    success: bool
+    answer: str
+    chat_history: List[WritingAssistantMessageResponse] = []

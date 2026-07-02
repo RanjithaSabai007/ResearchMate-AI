@@ -155,6 +155,7 @@ class Project(Base):
 
     title = Column(String, nullable=False)
     description = Column(String, nullable=True)
+    document_type = Column(String, default="Research Thesis", nullable=False)
 
     draft_title = Column(String, default="Untitled Draft", nullable=False)
     draft_content = Column(Text, default="", nullable=False)
@@ -196,6 +197,13 @@ class Project(Base):
         "Diagram",
         back_populates="project",
         cascade="all, delete-orphan"
+    )
+
+    writing_messages = relationship(
+        "WritingAssistantMessage",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        order_by="WritingAssistantMessage.created_at.asc()"
     )
 
 
@@ -383,4 +391,27 @@ class Diagram(Base):
     project = relationship(
         "Project",
         back_populates="diagrams"
+    )
+
+
+class WritingAssistantMessage(Base):
+    __tablename__ = "writing_assistant_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(
+        Integer,
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False
+    )
+    role = Column(String, nullable=False)       # "user" | "assistant"
+    content = Column(Text, nullable=False)
+    action_context = Column(Text, nullable=True)  # JSON: selected_text, heading, etc.
+    created_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc)
+    )
+
+    project = relationship(
+        "Project",
+        back_populates="writing_messages"
     )

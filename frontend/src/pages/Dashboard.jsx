@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import Topbar from '../components/Topbar';
 import api from '../utils/api';
+import editorBridge from '../services/editorBridge';
+import WritingAssistant from '../components/WritingAssistant';
 import { 
   Plus,
   FileText, 
@@ -234,6 +236,9 @@ export default function Dashboard() {
   const [findResults, setFindResults] = useState([]);
   const [currentFindIndex, setCurrentFindIndex] = useState(-1);
   const [contextMenu, setContextMenu] = useState(null);
+  const [insertPanel, setInsertPanel] = useState(null); // null | 'table' | 'image' | 'graph'
+  const [resizeVersion, setResizeVersion] = useState(0);
+  const [showAIAssistant, setShowAIAssistant] = useState(true);
   const [draggingNodeId, setDraggingNodeId] = useState(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [isEditingDiagramNode, setIsEditingDiagramNode] = useState(null);
@@ -1157,6 +1162,16 @@ export default function Dashboard() {
     },
   });
 
+  // Sync editor registration with editorBridge
+  useEffect(() => {
+    if (editor) {
+      editorBridge.registerEditor(editor);
+    }
+    return () => {
+      editorBridge.unregisterEditor();
+    };
+  }, [editor]);
+
   // Load project draft content into Tiptap
   useEffect(() => {
     if (selectedProject && editor) {
@@ -1325,134 +1340,154 @@ export default function Dashboard() {
     editor.chain().focus().updateAttributes('heading', { indent: Math.max(0, indentVal - 1) }).run();
   };
 
-  const handleInsertTable = () => {
-    const rowsInput = prompt("Enter number of data rows:", "3");
-    const colsInput = prompt("Enter number of columns:", "3");
-    if (!rowsInput || !colsInput) return;
-    
-    const rows = parseInt(rowsInput) || 3;
-    const cols = parseInt(colsInput) || 3;
-    if (editor) {
-      editor.chain().focus().insertTable({ rows, cols, withHeaderRow: true }).run();
-    }
-  };
+  // --- Drag-to-Resize Mechanics for Images, Tables, & Graphs ---
 
-  const handleInsertImage = () => {
-    const fileInput = document.createElement("input");
-    fileInput.type = "file";
-    fileInput.accept = "image/*";
+  const handleResizeStart = (e, direction) => {
+    e.preventDefault();
+    e.stopPropagation();
     
-    fileInput.onchange = (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const rect = selectedEditorElement.getBoundingClientRect();
+    const startWidth = rect.width;
+    const startHeight = rect.height;
+    
+    const handleMouseMove = (moveEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      const deltaY = moveEvent.clientY - startY;
       
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const base64Url = event.target.result;
-        if (editor) {
-          editor.chain().focus().setImage({ src: base64Url, alt: file.name }).run();
-        }
-      };
-      reader.readAsDataURL(file);
+      let newWidth = startWidth;
+      let newHeight = startHeight;
+      
+      if (direction.includes('r')) newWidth = startWidth + deltaX;
+      if (direction.includes('l')) newWidth = startWidth - deltaX;
+      if (direction.includes('b')) newHeight = startHeight + deltaY;
+      if (direction.includes('t')) newHeight = startHeight - deltaY;
+      
+      // Enforce bounds
+      newWidth = Math.max(120, Math.min(1000, newWidth));
+      newHeight = Math.max(80, Math.min(800, newHeight));
+      
+      // Apply resizing styles directly
+      if (selectedElementType === 'img') {
+        selectedEditorElement.style.width = `${newWidth}px`;
+        selectedEditorElement.style.height = `${newHeight}px`;
+      } else if (selectedElementType === 'table') {
+        selectedEditorElement.style.width = `${newWidth}px`;
+      } else {
+        // graph wrapper / svg
+        selectedEditorElement.style.width = `${newWidth}px`;
+      }
+      
+      // Force trigger state re-render for helper overlay bounds coordinates
+      setResizeVersion(v => v + 1);
+      setSaveStatus('unsaved');
     };
     
-    const choice = confirm("Insert a local image file from your computer? (Click Cancel to insert via URL link)");
-    if (choice) {
-      fileInput.click();
-    } else {
-      const url = prompt("Enter Image URL link:", "https://images.unsplash.com/photo-1507668077129-56e32842fceb?w=600");
-      if (!url) return;
+    const handleMouseUp = () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      
+      // Sync change to Tiptap HTML content state
       if (editor) {
-        editor.chain().focus().setImage({ src: url, alt: "Figure" }).run();
+        setDraftContent(editor.getHTML());
       }
+    };
+    
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
+
+  const getOverlayStyle = () => {
+    if (!selectedEditorElement) return null;
+    
+    const container = document.querySelector('.editor-canvas-scrollable');
+    if (!container) return null;
+    
+    const containerRect = container.getBoundingClientRect();
+    const elementRect = selectedEditorElement.getBoundingClientRect();
+    
+    return {
+      top: elementRect.top - containerRect.top + container.scrollTop,
+      left: elementRect.left - containerRect.left + container.scrollLeft,
+      width: elementRect.width,
+      height: elementRect.height,
+    };
+  };
+
+  const handleTableAddRow = () => {
+    if (editor) editor.chain().focus().addRowAfter().run();
+  };
+
+  const handleTableAddCol = () => {
+    if (editor) editor.chain().focus().addColumnAfter().run();
+  };
+
+  const handleTableDeleteRow = () => {
+    if (editor) editor.chain().focus().deleteRow().run();
+  };
+
+  const handleTableDeleteTable = () => {
+    if (editor) {
+      editor.chain().focus().deleteTable().run();
+      setSelectedEditorElement(null);
+      setSelectedElementType('');
     }
   };
 
-  const handleInsertGraph = () => {
-    const titleInput = prompt("Enter Graph Title:", "Performance Evaluation: System Accuracy Comparison");
-    const labelsInput = prompt("Enter Categories (comma-separated):", "Baseline, SOTA, Proposed");
-    const valuesInput = prompt("Enter Percent Values (0-100, comma-separated):", "55, 78, 96");
-    
-    if (!labelsInput || !valuesInput) return;
-    
-    const title = titleInput || "System Performance Chart";
-    const labels = labelsInput.split(",").map(s => s.trim());
-    const values = valuesInput.split(",").map(s => parseInt(s.trim()) || 0);
-    
-    const barWidth = 50;
-    const spacing = 45;
-    const chartHeight = 160;
-    const startX = 80;
-    const startY = 210;
-    
-    let barsHTML = "";
-    const colors = ["#94a3b8", "#818cf8", "#f43f5e", "#10b981", "#8b5cf6", "#f97316"];
-    
-    for (let i = 0; i < Math.min(labels.length, values.length); i++) {
-      const lbl = labels[i];
-      const val = Math.min(100, Math.max(0, values[i]));
-      const bH = (val / 100) * chartHeight;
-      const bX = startX + i * (barWidth + spacing);
-      const bY = startY - bH;
-      const col = colors[i % colors.length];
-      
-      barsHTML += `
-        <rect x="${bX}" y="${bY}" width="${barWidth}" height="${bH}" fill="${col}" rx="4" />
-        <text x="${bX + barWidth/2}" y="${bY - 8}" text-anchor="middle" font-size="9.5" font-weight="bold" fill="${col}">${val}%</text>
-        <text x="${bX + barWidth/2}" y="${startY + 16}" text-anchor="middle" font-size="9.5" font-weight="bold" fill="#64748b">${lbl}</text>
-      `;
-    }
-    
-    const graphWidth = Math.max(500, startX + labels.length * (barWidth + spacing) + 30);
-    
-    const graphHTML = `
-      <div style="text-align: center; margin: 24px 0; display: flex; flex-direction: column; align-items: center;" contenteditable="false">
-        <svg width="${graphWidth}" height="280" viewBox="0 0 ${graphWidth} 280" style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.04); padding: 15px; font-family: system-ui, sans-serif;">
-          <text x="${graphWidth/2}" y="22" text-anchor="middle" font-size="13" font-weight="bold" fill="#1e293b">${title}</text>
-          <line x1="60" y1="${startY}" x2="${graphWidth - 30}" y2="${startY}" stroke="#94a3b8" stroke-width="2" />
-          <line x1="60" y1="40" x2="60" y2="${startY}" stroke="#94a3b8" stroke-width="2" />
-          
-          <text x="50" y="${startY + 3}" text-anchor="end" font-size="9" fill="#64748b">0%</text>
-          <line x1="60" y1="${startY}" x2="${graphWidth - 30}" y2="${startY}" stroke="#f1f5f9" stroke-dasharray="3" />
-          
-          <text x="50" y="${startY - 40}" text-anchor="end" font-size="9" fill="#64748b">25%</text>
-          <line x1="60" y1="${startY - 40}" x2="${graphWidth - 30}" y2="${startY - 40}" stroke="#f1f5f9" stroke-dasharray="3" />
-          
-          <text x="50" y="${startY - 80}" text-anchor="end" font-size="9" fill="#64748b">50%</text>
-          <line x1="60" y1="${startY - 80}" x2="${graphWidth - 30}" y2="${startY - 80}" stroke="#f1f5f9" stroke-dasharray="3" />
-          
-          <text x="50" y="${startY - 120}" text-anchor="end" font-size="9" fill="#64748b">75%</text>
-          <line x1="60" y1="${startY - 120}" x2="${graphWidth - 30}" y2="${startY - 120}" stroke="#f1f5f9" stroke-dasharray="3" />
-          
-          <text x="50" y="44" text-anchor="end" font-size="9" fill="#64748b">100%</text>
-          <line x1="60" y1="40" x2="${graphWidth - 30}" y2="40" stroke="#f1f5f9" stroke-dasharray="3" />
-          
-          ${barsHTML}
-        </svg>
-        <p style="font-size: 11px; color: #64748b; font-style: italic; margin-top: 8px;">Figure: ${title}</p>
-      </div><p></p>
-    `;
-    
+  const handleImageResize = (width) => {
     if (editor) {
-      editor.chain().focus().insertContent(graphHTML).run();
+      editor.chain().focus().updateAttributes('image', { width }).run();
+      selectedEditorElement.style.width = width;
+      setSaveStatus('unsaved');
+    }
+  };
+
+  const handleImageDelete = () => {
+    if (editor) {
+      // Direct DOM removal of visual wrappers
+      const parentNode = selectedEditorElement.parentNode;
+      if (parentNode && parentNode.classList.contains('resizable-image')) {
+        parentNode.remove();
+      } else {
+        selectedEditorElement.remove();
+      }
+      setSelectedEditorElement(null);
+      setSelectedElementType('');
+      setDraftContent(editor.getHTML());
+      setSaveStatus('unsaved');
     }
   };
 
   const handleEditorClick = (e) => {
     const target = e.target;
+    
+    // Check if image figure clicked
     if (target.tagName === 'IMG') {
       setSelectedEditorElement(target);
       setSelectedElementType('img');
-    } else {
-      const tableNode = target.closest('table');
-      if (tableNode) {
-        setSelectedEditorElement(tableNode);
-        setSelectedElementType('table');
-      } else {
-        setSelectedEditorElement(null);
-        setSelectedElementType('');
-      }
+      return;
     }
+    
+    // Check if table clicked
+    const tableNode = target.closest('table');
+    if (tableNode) {
+      setSelectedEditorElement(tableNode);
+      setSelectedElementType('table');
+      return;
+    }
+    
+    // Check if custom graph element clicked (div with resizable-image style)
+    const graphNode = target.closest('.resizable-image');
+    if (graphNode && graphNode.tagName !== 'IMG') {
+      setSelectedEditorElement(graphNode);
+      setSelectedElementType('graph');
+      return;
+    }
+    
+    // Clicking outside elements clears selections
+    setSelectedEditorElement(null);
+    setSelectedElementType('');
   };
 
   const handleContextAction = (action) => {
@@ -2350,10 +2385,10 @@ export default function Dashboard() {
                             >
                               <span className="text-[10px] font-black tracking-tighter">PAGE</span>
                             </button>
-                            <button
-                              onClick={handleInsertTable}
+                             <button
+                              onClick={() => setInsertPanel(insertPanel === 'table' ? null : 'table')}
                               className={`p-1.5 rounded-lg transition-all ${
-                                editor?.isActive('table')
+                                insertPanel === 'table'
                                   ? 'bg-indigo-100 dark:bg-indigo-950/40 text-indigo-650'
                                   : 'hover:bg-gray-250 dark:hover:bg-gray-800 text-gray-500'
                               }`}
@@ -2362,15 +2397,23 @@ export default function Dashboard() {
                               <Table className="w-3.5 h-3.5" />
                             </button>
                             <button
-                              onClick={handleInsertImage}
-                              className="p-1.5 rounded-lg hover:bg-gray-250 dark:hover:bg-gray-800 text-gray-500"
+                              onClick={() => setInsertPanel(insertPanel === 'image' ? null : 'image')}
+                              className={`p-1.5 rounded-lg transition-all ${
+                                insertPanel === 'image'
+                                  ? 'bg-indigo-100 dark:bg-indigo-950/40 text-indigo-650'
+                                  : 'hover:bg-gray-250 dark:hover:bg-gray-800 text-gray-500'
+                              }`}
                               title="Upload Local / Web image"
                             >
                               <Image className="w-3.5 h-3.5" />
                             </button>
                             <button
-                              onClick={handleInsertGraph}
-                              className="p-1.5 rounded-lg hover:bg-gray-250 dark:hover:bg-gray-800 text-gray-500"
+                              onClick={() => setInsertPanel(insertPanel === 'graph' ? null : 'graph')}
+                              className={`p-1.5 rounded-lg transition-all ${
+                                insertPanel === 'graph'
+                                  ? 'bg-indigo-100 dark:bg-indigo-950/40 text-indigo-650'
+                                  : 'hover:bg-gray-250 dark:hover:bg-gray-800 text-gray-500'
+                              }`}
                               title="Insert Dynamic Research Bar Graph"
                             >
                               <BarChart3 className="w-3.5 h-3.5" />
@@ -2563,11 +2606,43 @@ export default function Dashboard() {
                                 <Maximize2 className="w-3.5 h-3.5" />
                               )}
                             </button>
+
+                            {/* AI Writing Assistant Toggle */}
+                            <button
+                              type="button"
+                              onClick={() => setShowAIAssistant(!showAIAssistant)}
+                              className={`p-2 rounded-xl transition-all border hover-scale flex items-center space-x-1 ${
+                                showAIAssistant 
+                                  ? 'bg-indigo-50 border-indigo-150 text-indigo-700 dark:bg-indigo-950/45 dark:border-indigo-900 text-indigo-400 font-bold' 
+                                  : 'border-gray-250 dark:border-pastel-darkBorder hover:bg-gray-55 dark:hover:bg-gray-800 text-gray-500'
+                              }`}
+                              title="Toggle AI Writing Assistant Sidebar"
+                            >
+                              <Sparkles className="w-3.5 h-3.5" />
+                              <span className="text-[10px] font-bold">AI Assistant</span>
+                            </button>
                           </div>
                         </div>
 
-                        {/* Editor Canvas Area */}
-                        <div className="flex-1 overflow-y-auto bg-slate-100 dark:bg-zinc-950 p-6 md:p-12 flex flex-col justify-start items-center min-h-[500px]">
+                        {/* Split Editor + Assistant Pane Container */}
+                        <div className="flex-1 flex overflow-hidden relative">
+                          
+                          {/* AI Writing Assistant Side Panel */}
+                          {showAIAssistant && (
+                            <div className="w-[320px] h-full flex-shrink-0 animate-fade-in-right">
+                              <WritingAssistant 
+                                projectId={selectedProject?.id}
+                                isDark={isDark}
+                                projectDocumentType={selectedProject?.document_type}
+                                onDocumentTypeChange={(newType) => {
+                                  setSelectedProject(prev => prev ? { ...prev, document_type: newType } : null);
+                                }}
+                              />
+                            </div>
+                          )}
+
+                          {/* Editor Canvas Area */}
+                          <div className="editor-canvas-scrollable flex-1 overflow-y-auto bg-slate-100 dark:bg-zinc-950 p-6 md:p-12 flex flex-col justify-start items-center min-h-[500px] relative">
                           
                           {/* Find & Replace Panel */}
                           {showFindReplace && (
@@ -2579,7 +2654,7 @@ export default function Dashboard() {
                                     placeholder="Find text..." 
                                     value={findText}
                                     onChange={(e) => setFindText(e.target.value)}
-                                    className="px-3 py-1.5 text-xs border rounded-xl dark:bg-slate-800 dark:border-pastel-darkBorder text-gray-700 dark:text-gray-205 focus:outline-none focus:border-pastel-pink/55"
+                                    className="px-3 py-1.5 text-xs border rounded-xl dark:bg-slate-800 dark:border-pastel-darkBorder text-gray-705 dark:text-gray-205 focus:outline-none focus:border-pastel-pink/55"
                                   />
                                 </div>
                                 <input 
@@ -2587,7 +2662,7 @@ export default function Dashboard() {
                                   placeholder="Replace with..." 
                                   value={replaceText}
                                   onChange={(e) => setReplaceText(e.target.value)}
-                                  className="px-3 py-1.5 text-xs border rounded-xl dark:bg-slate-800 dark:border-pastel-darkBorder text-gray-700 dark:text-gray-205 focus:outline-none focus:border-pastel-pink/55"
+                                  className="px-3 py-1.5 text-xs border rounded-xl dark:bg-slate-800 dark:border-pastel-darkBorder text-gray-750 dark:text-gray-205 focus:outline-none focus:border-pastel-pink/55"
                                 />
                                 <button 
                                   type="button" 
@@ -2614,6 +2689,217 @@ export default function Dashboard() {
                             </div>
                           )}
 
+                          {/* Inline Insert Configurator Panel */}
+                          {insertPanel && (
+                            <div className="w-full max-w-[800px] mb-4 p-4 rounded-2xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-pastel-darkBorder shadow-lg animate-fade-in-up">
+                              <div className="flex justify-between items-center mb-3 pb-2 border-b dark:border-zinc-850">
+                                <h3 className="text-xs font-bold text-pastel-accent uppercase tracking-wider">
+                                  Configure Insertion: {insertPanel}
+                                </h3>
+                                <button 
+                                  type="button" 
+                                  onClick={() => setInsertPanel(null)}
+                                  className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-slate-800 text-gray-400"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              </div>
+                              
+                              {insertPanel === 'table' && (
+                                <div className="flex flex-wrap items-end gap-4">
+                                  <div>
+                                    <label className="block text-[10px] uppercase font-bold text-gray-400 mb-1">Rows</label>
+                                    <input 
+                                      type="number" 
+                                      min="1" 
+                                      max="20" 
+                                      defaultValue="3" 
+                                      id="insert-table-rows"
+                                      className="w-20 px-3 py-1.5 text-xs border rounded-xl dark:bg-slate-800 dark:border-pastel-darkBorder text-gray-700 dark:text-gray-200"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="block text-[10px] uppercase font-bold text-gray-400 mb-1">Columns</label>
+                                    <input 
+                                      type="number" 
+                                      min="1" 
+                                      max="20" 
+                                      defaultValue="3" 
+                                      id="insert-table-cols"
+                                      className="w-20 px-3 py-1.5 text-xs border rounded-xl dark:bg-slate-800 dark:border-pastel-darkBorder text-gray-700 dark:text-gray-200"
+                                    />
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const rows = parseInt(document.getElementById('insert-table-rows').value) || 3;
+                                      const cols = parseInt(document.getElementById('insert-table-cols').value) || 3;
+                                      editor?.chain().focus().insertTable({ rows, cols, withHeaderRow: true }).run();
+                                      setInsertPanel(null);
+                                    }}
+                                    className="px-4 py-2 bg-pastel-accent text-white rounded-xl text-xs font-bold shadow hover-scale"
+                                  >
+                                    Insert Table
+                                  </button>
+                                </div>
+                              )}
+
+                              {insertPanel === 'image' && (
+                                <div className="space-y-3">
+                                  <div className="flex flex-col md:flex-row gap-4 items-center">
+                                    <div className="flex-1 w-full">
+                                      <label className="block text-[10px] uppercase font-bold text-gray-400 mb-1">Upload image file</label>
+                                      <input 
+                                        type="file" 
+                                        accept="image/*"
+                                        onChange={(e) => {
+                                          const file = e.target.files[0];
+                                          if (file) {
+                                            const reader = new FileReader();
+                                            reader.onload = (event) => {
+                                              const base64Url = event.target.result;
+                                              editor?.chain().focus().insertContent(`<img src="${base64Url}" style="max-width: 60%; cursor: pointer;" class="resizable-image border rounded-xl shadow-sm inline-block" alt="${file.name}" />`).run();
+                                              setInsertPanel(null);
+                                            };
+                                            reader.readAsDataURL(file);
+                                          }
+                                        }}
+                                        className="w-full text-xs text-gray-550 file:mr-4 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+                                      />
+                                    </div>
+                                    <div className="text-gray-400 text-xs font-bold">OR</div>
+                                    <div className="flex-1 w-full">
+                                      <label className="block text-[10px] uppercase font-bold text-gray-400 mb-1">Image URL</label>
+                                      <div className="flex gap-2">
+                                        <input 
+                                          type="text" 
+                                          placeholder="https://example.com/illustration.png"
+                                          id="insert-image-url"
+                                          className="flex-1 px-3 py-1.5 text-xs border rounded-xl dark:bg-slate-800 dark:border-pastel-darkBorder text-gray-750 dark:text-gray-200"
+                                        />
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const url = document.getElementById('insert-image-url').value;
+                                            if (url) {
+                                              editor?.chain().focus().insertContent(`<img src="${url}" style="max-width: 60%; cursor: pointer;" class="resizable-image border rounded-xl shadow-sm inline-block" alt="Web Figure" />`).run();
+                                            }
+                                            setInsertPanel(null);
+                                          }}
+                                          className="px-3 py-1.5 bg-pastel-accent text-white rounded-xl text-xs font-bold shadow hover-scale"
+                                        >
+                                          Insert
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+
+                              {insertPanel === 'graph' && (
+                                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                                  <div className="md:col-span-2">
+                                    <label className="block text-[10px] uppercase font-bold text-gray-400 mb-1">Graph Title</label>
+                                    <input 
+                                      type="text" 
+                                      defaultValue="Performance Evaluation: System Accuracy Comparison" 
+                                      id="insert-graph-title"
+                                      className="w-full px-3 py-1.5 text-xs border rounded-xl dark:bg-slate-800 dark:border-pastel-darkBorder text-gray-750 dark:text-gray-205"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="block text-[10px] uppercase font-bold text-gray-400 mb-1">Categories (comma-sep)</label>
+                                    <input 
+                                      type="text" 
+                                      defaultValue="Baseline, SOTA, Proposed" 
+                                      id="insert-graph-cats"
+                                      className="w-full px-3 py-1.5 text-xs border rounded-xl dark:bg-slate-800 dark:border-pastel-darkBorder text-gray-750 dark:text-gray-205"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="block text-[10px] uppercase font-bold text-gray-400 mb-1">Percentages (comma-sep)</label>
+                                    <input 
+                                      type="text" 
+                                      defaultValue="55, 78, 96" 
+                                      id="insert-graph-vals"
+                                      className="w-full px-3 py-1.5 text-xs border rounded-xl dark:bg-slate-800 dark:border-pastel-darkBorder text-gray-750 dark:text-gray-205"
+                                    />
+                                  </div>
+                                  <div className="md:col-span-4 flex justify-end">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const title = document.getElementById('insert-graph-title').value || "System Performance Chart";
+                                        const labels = (document.getElementById('insert-graph-cats').value || "").split(",").map(s => s.trim());
+                                        const values = (document.getElementById('insert-graph-vals').value || "").split(",").map(s => parseInt(s.trim()) || 0);
+                                        
+                                        const barWidth = 50;
+                                        const spacing = 45;
+                                        const chartHeight = 160;
+                                        const startX = 80;
+                                        const startY = 210;
+                                        
+                                        let barsHTML = "";
+                                        const colors = ["#94a3b8", "#818cf8", "#f43f5e", "#10b981", "#8b5cf6", "#f97316"];
+                                        
+                                        for (let i = 0; i < Math.min(labels.length, values.length); i++) {
+                                          const lbl = labels[i];
+                                          const val = Math.min(100, Math.max(0, values[i]));
+                                          const bH = (val / 100) * chartHeight;
+                                          const bX = startX + i * (barWidth + spacing);
+                                          const bY = startY - bH;
+                                          const col = colors[i % colors.length];
+                                          
+                                          barsHTML += `
+                                            <rect x="${bX}" y="${bY}" width="${barWidth}" height="${bH}" fill="${col}" rx="4" />
+                                            <text x="${bX + barWidth/2}" y="${bY - 8}" text-anchor="middle" font-size="9.5" font-weight="bold" fill="${col}">${val}%</text>
+                                            <text x="${bX + barWidth/2}" y="${startY + 16}" text-anchor="middle" font-size="9.5" font-weight="bold" fill="#64748b">${lbl}</text>
+                                          `;
+                                        }
+                                        
+                                        const graphWidth = Math.max(500, startX + labels.length * (barWidth + spacing) + 30);
+                                        
+                                        const graphHTML = `
+                                          <div style="text-align: center; margin: 24px 0; display: flex; flex-direction: column; align-items: center;" class="resizable-image" contenteditable="false">
+                                            <svg width="${graphWidth}" height="280" viewBox="0 0 ${graphWidth} 280" style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.04); padding: 15px; font-family: system-ui, sans-serif;">
+                                              <text x="${graphWidth/2}" y="22" text-anchor="middle" font-size="13" font-weight="bold" fill="#1e293b">${title}</text>
+                                              <line x1="60" y1="${startY}" x2="${graphWidth - 30}" y2="${startY}" stroke="#94a3b8" stroke-width="2" />
+                                              <line x1="60" y1="40" x2="60" y2="${startY}" stroke="#94a3b8" stroke-width="2" />
+                                              
+                                              <text x="50" y="${startY + 3}" text-anchor="end" font-size="9" fill="#64748b">0%</text>
+                                              <line x1="60" y1="${startY}" x2="${graphWidth - 30}" y2="${startY}" stroke="#f1f5f9" stroke-dasharray="3" />
+                                              
+                                              <text x="50" y="${startY - 40}" text-anchor="end" font-size="9" fill="#64748b">25%</text>
+                                              <line x1="60" y1="${startY - 40}" x2="${graphWidth - 30}" y2="${startY - 40}" stroke="#f1f5f9" stroke-dasharray="3" />
+                                              
+                                              <text x="50" y="${startY - 80}" text-anchor="end" font-size="9" fill="#64748b">50%</text>
+                                              <line x1="60" y1="${startY - 80}" x2="${graphWidth - 30}" y2="${startY - 80}" stroke="#f1f5f9" stroke-dasharray="3" />
+                                              
+                                              <text x="50" y="${startY - 120}" text-anchor="end" font-size="9" fill="#64748b">75%</text>
+                                              <line x1="60" y1="${startY - 120}" x2="${graphWidth - 30}" y2="${startY - 120}" stroke="#f1f5f9" stroke-dasharray="3" />
+                                              
+                                              <text x="50" y="44" text-anchor="end" font-size="9" fill="#64748b">100%</text>
+                                              <line x1="60" y1="40" x2="${graphWidth - 30}" y2="40" stroke="#f1f5f9" stroke-dasharray="3" />
+                                              
+                                              ${barsHTML}
+                                            </svg>
+                                            <p style="font-size: 11px; color: #64748b; font-style: italic; margin-top: 8px;">Figure: ${title}</p>
+                                          </div><p></p>
+                                        `;
+                                        
+                                        editor?.chain().focus().insertContent(graphHTML).run();
+                                        setInsertPanel(null);
+                                      }}
+                                      className="px-4 py-2 bg-pastel-accent text-white rounded-xl text-xs font-bold shadow hover-scale"
+                                    >
+                                      Generate & Insert Graph
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
                           {/* Float selection controls for Image/Table */}
                           {selectedEditorElement && (
                             <div className="w-full max-w-[800px] mb-3 p-3 rounded-2xl bg-indigo-50 dark:bg-slate-900 border border-indigo-150 dark:border-indigo-950 flex items-center justify-between text-xs font-bold shadow-md animate-fade-in-up">
@@ -2623,48 +2909,21 @@ export default function Dashboard() {
                                     <Image className="w-4 h-4" />
                                     <span>Selected Image Figure</span>
                                   </>
-                                ) : (
+                                ) : selectedElementType === 'table' ? (
                                   <>
                                     <Table className="w-4 h-4" />
                                     <span>Selected Grid Table</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <BarChart3 className="w-4 h-4" />
+                                    <span>Selected Research Graph</span>
                                   </>
                                 )}
                               </div>
                               
                               <div className="flex items-center space-x-2">
-                                {selectedElementType === 'img' ? (
-                                  <>
-                                    <span className="text-gray-400 text-[10px]">Resize:</span>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleImageResize('25%')}
-                                      className="px-2 py-1 rounded bg-white hover:bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-gray-300 border dark:border-pastel-darkBorder transition-all"
-                                    >
-                                      25%
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleImageResize('50%')}
-                                      className="px-2 py-1 rounded bg-white hover:bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-gray-300 border dark:border-pastel-darkBorder transition-all"
-                                    >
-                                      50%
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleImageResize('75%')}
-                                      className="px-2 py-1 rounded bg-white hover:bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-gray-300 border dark:border-pastel-darkBorder transition-all"
-                                    >
-                                      75%
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleImageResize('100%')}
-                                      className="px-2 py-1 rounded bg-white hover:bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-gray-300 border dark:border-pastel-darkBorder transition-all"
-                                    >
-                                      100%
-                                    </button>
-                                  </>
-                                ) : (
+                                {selectedElementType === 'table' && (
                                   <>
                                     <button
                                       type="button"
@@ -2695,12 +2954,39 @@ export default function Dashboard() {
                                 
                                 <button
                                   type="button"
-                                  onClick={selectedElementType === 'img' ? handleImageDelete : handleTableDeleteTable}
+                                  onClick={selectedElementType === 'img' ? handleImageDelete : selectedElementType === 'table' ? handleTableDeleteTable : handleImageDelete}
                                   className="px-2.5 py-1 rounded bg-red-500 hover:bg-red-650 text-white font-bold transition-all shadow-sm"
                                 >
                                   Delete
                                 </button>
                               </div>
+                            </div>
+                          )}
+
+                          {/* Drag Resize Overlay Container */}
+                          {selectedEditorElement && getOverlayStyle() && (
+                            <div 
+                              className="absolute pointer-events-none border-2 border-dashed border-indigo-500 z-30 animate-fade-in"
+                              style={getOverlayStyle()}
+                            >
+                              {/* 8 resizing handles */}
+                              {[
+                                { dir: 'tl', cursor: 'nwse-resize', style: { top: -5, left: -5 } },
+                                { dir: 'tm', cursor: 'ns-resize', style: { top: -5, left: 'calc(50% - 5px)' } },
+                                { dir: 'tr', cursor: 'nesw-resize', style: { top: -5, right: -5 } },
+                                { dir: 'ml', cursor: 'ew-resize', style: { top: 'calc(50% - 5px)', left: -5 } },
+                                { dir: 'mr', cursor: 'ew-resize', style: { top: 'calc(50% - 5px)', right: -5 } },
+                                { dir: 'bl', cursor: 'nesw-resize', style: { bottom: -5, left: -5 } },
+                                { dir: 'bm', cursor: 'ns-resize', style: { bottom: -5, left: 'calc(50% - 5px)' } },
+                                { dir: 'br', cursor: 'nwse-resize', style: { bottom: -5, right: -5 } },
+                              ].map(h => (
+                                <div
+                                  key={h.dir}
+                                  onMouseDown={(e) => handleResizeStart(e, h.dir)}
+                                  className="absolute w-2.5 h-2.5 bg-white border-2 border-indigo-600 rounded-sm pointer-events-auto hover:bg-indigo-100 shadow-sm"
+                                  style={{ ...h.style, cursor: h.cursor }}
+                                />
+                              ))}
                             </div>
                           )}
 
@@ -2792,7 +3078,8 @@ export default function Dashboard() {
 
                         </div>
                       </div>
-                    )}
+                    </div>
+                  )}
 
                     {/* PANEL 2: REFERENCE PAPERS */}
                     {workspaceTab === 'papers' && (

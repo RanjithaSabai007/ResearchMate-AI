@@ -116,3 +116,29 @@
   margin-bottom: 1rem;
 }
 
+/* Tiptap Tables Styles */
+.editor-content table {
+  border-collapse: collapse;
+  margin: 1.5rem 0;
+  width: 100%;
+  table-layout: fixed;
+}
+.editor-content th, .editor-content td {
+  border: 1px solid #cbd5e1;
+  padding: 8px 12px;
+  min-width: 1em;
+  vertical-align: top;
+  position: relative;
+}
+.dark .editor-content th, .dark .editor-content td {
+  border-color: #3f3f46;
+}
+.editor-content th {
+  background-color: #f8fafc;
+  font-weight: 700;
+  text-align: left;
+}
+.dark .editor-content th {
+  background-color: #18181b;
+}
+
